@@ -32,11 +32,7 @@ impl Notifier {
         timestamp: &str,
         logs: &str,
     ) {
-        let truncated_logs = if logs.len() > 1000 {
-            format!("{}... [truncated]", &logs[..1000])
-        } else {
-            logs.to_string()
-        };
+        let truncated_logs = crate::utils::truncate_str(logs, 1000);
 
         discord::send_discord_alert(
             &self.config,

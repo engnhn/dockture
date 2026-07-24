@@ -82,6 +82,17 @@ pub fn matches_pattern(name: &str, pattern: &str) -> bool {
     }
 }
 
+pub fn truncate_str(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    let mut end = max_bytes;
+    while !s.is_char_boundary(end) && end > 0 {
+        end -= 1;
+    }
+    format!("{}... [truncated]", &s[..end])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,5 +106,21 @@ mod tests {
         assert!(!matches_pattern("app-web-1", "db-*"));
         assert!(!matches_pattern("app-web-1", "*-web"));
         assert!(matches_pattern("db-postgres", "db-postgres"));
+    }
+
+    #[test]
+    fn test_truncate_str_ascii() {
+        let text = "Hello world from dockture";
+        assert_eq!(truncate_str(text, 50), "Hello world from dockture");
+        assert_eq!(truncate_str(text, 5), "Hello... [truncated]");
+    }
+
+    #[test]
+    fn test_truncate_str_utf8_char_boundary() {
+        let text = "Hata: 🚀 Sistem durduruldu 💥";
+        // '🚀' is 4 bytes at index 7..11. If max_bytes is 9, it lands inside '🚀'.
+        let truncated = truncate_str(text, 9);
+        assert_eq!(truncated, "Hata: ... [truncated]");
+        assert!(truncated.starts_with("Hata: "));
     }
 }
