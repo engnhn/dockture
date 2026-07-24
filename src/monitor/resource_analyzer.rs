@@ -3,14 +3,81 @@ use crate::notifier::Notifier;
 use bollard::Docker;
 use bollard::container::{ListContainersOptions, StatsOptions};
 use futures_util::StreamExt;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::time::sleep;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 struct MetricHistory {
     cpu: Vec<f64>,
     memory: Vec<f64>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct PersistentState {
+    timestamp: u64,
+    history: HashMap<String, MetricHistory>,
+}
+
+fn get_state_buffer_path() -> Option<PathBuf> {
+    Config::default_path().ok().map(|p| {
+        p.parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("state_buffer.json")
+    })
+}
+
+fn load_persistent_state(path: &Path) -> HashMap<String, MetricHistory> {
+    if !path.exists() {
+        return HashMap::new();
+    }
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return HashMap::new(),
+    };
+    let state: PersistentState = match serde_json::from_str(&content) {
+        Ok(s) => s,
+        Err(_) => return HashMap::new(),
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    if now.saturating_sub(state.timestamp) > 7200 {
+        return HashMap::new();
+    }
+    if !state.history.is_empty() {
+        println!(
+            "Resource Analyzer: Restored warm-start metric state for {} container(s).",
+            state.history.len()
+        );
+    }
+    state.history
+}
+
+fn save_persistent_state(path: &Path, history: &HashMap<String, MetricHistory>) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let state = PersistentState {
+        timestamp: now,
+        history: history.clone(),
+    };
+    if let Ok(json) = serde_json::to_string(&state) {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if std::fs::write(path, json).is_ok() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+            }
+        }
+    }
 }
 
 pub fn calculate_z_score(history: &[f64], current: f64, min_std_dev: f64) -> Option<f64> {
@@ -111,7 +178,11 @@ pub async fn run_resource_monitor(
     let mut mem_warning_states: HashMap<String, bool> = HashMap::new();
     let mut cpu_warning_states: HashMap<String, bool> = HashMap::new();
     let mut disk_warning_sent = false;
-    let mut metric_history: HashMap<String, MetricHistory> = HashMap::new();
+    let state_path = get_state_buffer_path();
+    let mut metric_history: HashMap<String, MetricHistory> = state_path
+        .as_ref()
+        .map(|p| load_persistent_state(p))
+        .unwrap_or_default();
     let mut last_anomaly_alerts: HashMap<String, std::time::Instant> = HashMap::new();
 
     loop {
@@ -685,6 +756,10 @@ pub async fn run_resource_monitor(
                 }
             }
         }
+
+        if let Some(ref path) = state_path {
+            save_persistent_state(path, &metric_history);
+        }
     }
 }
 
@@ -708,5 +783,64 @@ mod tests {
 
         let history_stable = vec![10.0; 5];
         assert_eq!(calculate_z_score(&history_stable, 11.0, 0.2), Some(5.0));
+    }
+
+    #[test]
+    fn test_persistent_state_save_and_load() {
+        let temp_dir = std::env::temp_dir().join("dockture_test_state");
+        let state_path = temp_dir.join("state_buffer.json");
+
+        let mut history = HashMap::new();
+        history.insert(
+            "test_web".to_string(),
+            MetricHistory {
+                cpu: vec![12.5, 15.0, 14.2],
+                memory: vec![50.0, 52.1, 51.5],
+            },
+        );
+
+        save_persistent_state(&state_path, &history);
+        assert!(state_path.exists());
+
+        let loaded = load_persistent_state(&state_path);
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded.get("test_web").unwrap().cpu, vec![12.5, 15.0, 14.2]);
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_stale_persistent_state_eviction() {
+        let temp_dir = std::env::temp_dir().join("dockture_test_stale");
+        let state_path = temp_dir.join("state_buffer.json");
+
+        let mut history = HashMap::new();
+        history.insert(
+            "test_web".to_string(),
+            MetricHistory {
+                cpu: vec![10.0; 5],
+                memory: vec![20.0; 5],
+            },
+        );
+
+        let stale_timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            - 10000;
+
+        let stale_state = PersistentState {
+            timestamp: stale_timestamp,
+            history,
+        };
+
+        let json = serde_json::to_string(&stale_state).unwrap();
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let _ = std::fs::write(&state_path, json);
+
+        let loaded = load_persistent_state(&state_path);
+        assert!(loaded.is_empty());
+
+        let _ = std::fs::remove_dir_all(temp_dir);
     }
 }

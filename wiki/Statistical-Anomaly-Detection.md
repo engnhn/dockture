@@ -28,3 +28,13 @@ To compute this in real time without storing massive arrays of historical metric
 When the computed Z-score for a container's CPU or memory usage exceeds the configured `anomaly_threshold` (which defaults to a Z-score of 3.0, representing values beyond the 99.7th percentile of normal distribution), Dockture flags the event as a statistical anomaly. The daemon immediately constructs an anomaly warning payload containing the container's baseline average, standard deviation, peak resource value, and calculated Z-score. This warning is dispatched across configured notification channels, alerting system operators to runaway processes or memory leaks in real time before the host system runs out of memory or experiences unresponsive service hangs.
 
 Users can fine-tune the behavior of the anomaly engine through the CLI configuration commands. Setting `anomaly_threshold` to higher values (such as 4.0 or 5.0) reduces sensitivity, ensuring that alerts are fired only during extreme resource spikes. Conversely, adjusting `anomaly_sensitivity` allows operators to customize how aggressively the engine reacts to low-variance services. If desired, anomaly detection can be toggled on or off globally per deployment environment, providing complete operational flexibility across development, staging, and production clusters.
+
+---
+
+## Warm-Start State Persistence (`state_buffer.json`)
+
+To prevent the "cold-start" problem where service restarts or system reboots reset the rolling historical buffer and require minutes of recalculation, Dockture implements automatic state persistence:
+
+- **State File Path**: Stored as `~/.config/dockture/state_buffer.json` with POSIX `0600` permissions (owner read/write only).
+- **Periodic Sync**: Automatically flushes rolling metric vectors (`cpu` and `memory`) at the end of every 30-second monitoring loop.
+- **Stale Eviction Window**: On daemon startup, Dockture inspects `state_buffer.json`. If the state timestamp is older than 2 hours (7,200 seconds), stale state is evicted to prevent applying outdated baselines. If valid, the rolling history is restored instantly.
