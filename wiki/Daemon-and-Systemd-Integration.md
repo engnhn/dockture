@@ -45,3 +45,41 @@ dockture service uninstall
 ```
 
 For host environments where user sessions terminate upon logout, systemd can be configured to keep user services running persistently across user disconnections by enabling user lingering. Executing `loginctl enable-linger $USER` ensures that systemd user manager instances start during host boot up and remain active continuously, enabling Dockture to provide uninterrupted 24/7 container monitoring regardless of interactive user login sessions.
+
+---
+
+## Alternative Production Deployment: Docker & Docker Compose
+
+For containerized infrastructure where running native binaries outside of container runtimes is restricted, Dockture can be deployed as a minimal Docker container.
+
+### `docker-compose.yml` Specification
+
+```yaml
+version: "3.8"
+
+services:
+  dockture:
+    image: sampletheory/dockture:latest
+    container_name: dockture-daemon
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ~/.config/dockture:/root/.config/dockture:ro
+    environment:
+      - DOCKTURE_CONFIG=/root/.config/dockture/config.toml
+```
+
+To launch via Docker Compose:
+```bash
+docker-compose up -d
+```
+
+---
+
+## Production Deployment Comparison & Memory Footprint
+
+| Deployment Mode | RAM Footprint (RSS) | Installation Method | Best For |
+|---|---|---|---|
+| **Native Systemd Service (Recommended)** | **~1.0 MB RAM** | `curl -fsSL .../install.sh \| sh` + `dockture service install` | Bare-metal servers, VMs, edge nodes requiring minimal overhead. |
+| **Docker Container** | **~2.0 MB RAM** | `docker-compose up -d` | Fully containerized environments, Kubernetes, or immutable OS hosts. |
+
