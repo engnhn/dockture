@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/sampletheory/dockture/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/sampletheory/dockture/ci.yml?branch=main&style=flat-square&logo=github&label=CI" alt="CI Status"></a>
+  <a href="https://github.com/sampletheory/dockture/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/sampletheory/dockture/ci.yml?branch=master&style=flat-square&logo=github&label=CI" alt="CI Status"></a>
   <a href="https://crates.io"><img src="https://img.shields.io/badge/rust-2024_edition-orange.svg?style=flat-square&logo=rust" alt="Rust Edition"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="License"></a>
   <a href="https://github.com/sampletheory/dockture/releases"><img src="https://img.shields.io/github/v/release/sampletheory/dockture?style=flat-square&color=emerald" alt="Release"></a>
