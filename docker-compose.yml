@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  dockture:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sampletheory/dockture:latest
+    container_name: dockture-daemon
+    restart: unless-stopped
+    volumes:
+      # Mount local host Docker UNIX socket (Read-Only)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Mount host Dockture configuration directory (Read-Only)
+      - ~/.config/dockture:/root/.config/dockture:ro

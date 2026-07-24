@@ -1,0 +1,7 @@
+target/
+.git/
+.github/
+wiki/
+assets/
+*.md
+LICENSE
