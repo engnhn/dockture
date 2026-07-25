@@ -1,40 +1,19 @@
-# Statistical Anomaly Detection Engine
+# Statistical Anomaly Detection
 
-Detecting application failures before total system outages occur requires monitoring mechanisms that extend beyond simple binary health checks or static threshold alerts. While static threshold alerts (such as alerting when CPU usage exceeds 90%) can be useful, they frequently produce false positive alerts during expected peak workloads or fail to detect insidious memory leaks that gradually consume container memory over several hours. To solve this problem, Dockture integrates a dedicated statistical anomaly detection engine based on dynamic Z-score calculations and adaptive standard deviation tracking.
+Dockture uses Z-scores to detect resource usage spikes in CPU and memory metrics.
 
-The Z-score (also known as the standard score) is a mathematical measurement that describes a value's relationship to the mean of a group of values, measured in terms of standard deviations from the mean. When applied to container resource tracking, the Z-score measures how far an instantaneous CPU percentage or memory usage value deviates from the container's recent historical baseline. A Z-score of zero indicates that the current resource consumption exactly matches the historical average, while a positive Z-score indicates how many standard deviations the current measurement lies above the mean.
+## Z-Score Calculation
 
-```
-       Normal Baseline Distribution                    Anomalous Resource Spike
-       
-                  Mean (μ)                                     Current Value (X)
-                     |                                                 |
-             .-------+-------.                                         |
-           /                 \                                         |
-          /                   \                                        v
-  -------+---------------------+---------------------------------------+------> Z-Score
-        -2σ          0        +2σ                                     +3.8σ
-                                                                   (TRIGGER)
-```
+The Z-score measures how many standard deviations a value is from the historical mean:
 
-In mathematical terms, the Z-score \( Z \) for a current observation \( X \) is calculated using the sample mean \( \mu \) and standard deviation \( \sigma \):
+$$Z = \frac{X - \mu}{\sigma}$$
 
-\[
-Z = \frac{X - \mu}{\sigma}
-\]
+Here $X$ is the current CPU or RAM sample, $\mu$ is the rolling average, and $\sigma$ is the standard deviation. When the computed Z-score exceeds `anomaly_threshold` (default: 3.0), Dockture sends an anomaly warning alert.
 
-To compute this in real time without storing massive arrays of historical metrics in memory, Dockture maintains a rolling window of recent resource statistics for each active container. As new resource usage samples are streamed from the Docker stats API, the anomaly detection engine continuously updates the rolling mean and variance. To prevent mathematical instability when resource metrics remain completely static (which would result in a standard deviation of zero and lead to division-by-zero errors), Dockture applies an adaptive variance floor parameter known as `anomaly_sensitivity`. This parameter clamps the minimum standard deviation denominator to a safe value, ensuring that subtle resource fluctuations during quiet operational periods do not trigger spurious anomaly alerts.
+To prevent division-by-zero errors when resource metrics remain flat, `anomaly_sensitivity` sets a minimum floor for the standard deviation denominator.
 
-When the computed Z-score for a container's CPU or memory usage exceeds the configured `anomaly_threshold` (which defaults to a Z-score of 3.0, representing values beyond the 99.7th percentile of normal distribution), Dockture flags the event as a statistical anomaly. The daemon immediately constructs an anomaly warning payload containing the container's baseline average, standard deviation, peak resource value, and calculated Z-score. This warning is dispatched across configured notification channels, alerting system operators to runaway processes or memory leaks in real time before the host system runs out of memory or experiences unresponsive service hangs.
+## State Persistence
 
-Users can fine-tune the behavior of the anomaly engine through the CLI configuration commands. Setting `anomaly_threshold` to higher values (such as 4.0 or 5.0) reduces sensitivity, ensuring that alerts are fired only during extreme resource spikes. Conversely, adjusting `anomaly_sensitivity` allows operators to customize how aggressively the engine reacts to low-variance services. If desired, anomaly detection can be toggled on or off globally per deployment environment, providing complete operational flexibility across development, staging, and production clusters.
+Rolling metrics are saved to `~/.config/dockture/state_buffer.json` every 30 seconds with owner-only (`0600`) permissions.
 
----
-
-## Warm-Start State Persistence (`state_buffer.json`)
-
-To prevent the "cold-start" problem where service restarts or system reboots reset the rolling historical buffer and require minutes of recalculation, Dockture implements automatic state persistence:
-
-- **State File Path**: Stored as `~/.config/dockture/state_buffer.json` with POSIX `0600` permissions (owner read/write only).
-- **Periodic Sync**: Automatically flushes rolling metric vectors (`cpu` and `memory`) at the end of every 30-second monitoring loop.
-- **Stale Eviction Window**: On daemon startup, Dockture inspects `state_buffer.json`. If the state timestamp is older than 2 hours (7,200 seconds), stale state is evicted to prevent applying outdated baselines. If valid, the rolling history is restored instantly.
+On startup, Dockture checks the timestamp of `state_buffer.json`. If the file is older than 2 hours (7,200 seconds), stale state is discarded.
