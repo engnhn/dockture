@@ -43,6 +43,7 @@ jobs:
       - name: Build Optimized Release Binary
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "-C link-arg=-fuse-ld=bfd"
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package Binary
