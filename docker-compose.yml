@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: sampletheory/dockture:latest
+    image: engnhn/dockture:latest
     container_name: dockture-daemon
     restart: unless-stopped
     volumes:

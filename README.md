@@ -3,9 +3,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/sampletheory/dockture/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/sampletheory/dockture/ci.yml?branch=master&style=flat-square&label=CI" alt="CI Status"></a>
+  <a href="https://github.com/engnhn/dockture/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/engnhn/dockture/ci.yml?branch=master&style=flat-square&label=CI" alt="CI Status"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="License"></a>
-  <a href="https://github.com/sampletheory/dockture/releases"><img src="https://img.shields.io/github/v/release/sampletheory/dockture?style=flat-square&color=emerald" alt="Release"></a>
+  <a href="https://github.com/engnhn/dockture/releases"><img src="https://img.shields.io/github/v/release/engnhn/dockture?style=flat-square&color=emerald" alt="Release"></a>
 </p>
 
 # Dockture
@@ -17,13 +17,13 @@ Dockture monitors Docker containers for crashes, resource spikes, and log errors
 Install the pre-built binary:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sampletheory/dockture/master/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/engnhn/dockture/master/install.sh | sh
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/sampletheory/dockture.git
+git clone https://github.com/engnhn/dockture.git
 cd dockture
 cargo build --release
 sudo cp target/release/dockture /usr/local/bin/
@@ -73,7 +73,7 @@ version: "3.8"
 
 services:
   dockture:
-    image: sampletheory/dockture:latest
+    image: engnhn/dockture:latest
     container_name: dockture
     restart: always
     volumes:

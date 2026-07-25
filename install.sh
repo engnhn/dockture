@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -e
 
-REPO="sampletheory/dockture"
+REPO="engnhn/dockture"
 BINARY_NAME="dockture"
 
 printf "\033[1;36m==> Installing Dockture Docker Monitor...\033[0m\n"

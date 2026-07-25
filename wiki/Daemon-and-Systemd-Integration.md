@@ -25,7 +25,7 @@ version: "3.8"
 
 services:
   dockture:
-    image: sampletheory/dockture:latest
+    image: engnhn/dockture:latest
     container_name: dockture
     restart: always
     volumes:
