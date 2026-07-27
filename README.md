@@ -1,26 +1,26 @@
 <p align="center">
-  <img src="./assets/logo.svg" alt="Dockture Logo" width="180" />
+  <img src="./assets/logo.svg" alt="dockture logo" width="180" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/engnhn/dockture/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/engnhn/dockture/ci.yml?branch=master&style=flat-square&label=CI" alt="CI Status"></a>
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="License"></a>
-  <a href="https://github.com/engnhn/dockture/releases"><img src="https://img.shields.io/github/v/release/engnhn/dockture?style=flat-square&color=emerald" alt="Release"></a>
+  <a href="https://github.com/engnhn/dockture/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/engnhn/dockture/ci.yml?branch=master&style=flat-square&label=ci" alt="ci status"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-mit-blue.svg?style=flat-square" alt="license"></a>
+  <a href="https://github.com/engnhn/dockture/releases"><img src="https://img.shields.io/github/v/release/engnhn/dockture?style=flat-square&color=emerald" alt="release"></a>
 </p>
 
-# Dockture
+# dockture
 
-Dockture monitors Docker containers for crashes, resource spikes, and log errors, sending alerts via Email, Discord, or Slack.
+dockture monitors docker containers for crashes, resource spikes, and log errors. it sends notifications through email, discord, or slack.
 
-## Quick Start
+## quick start
 
-Install the pre-built binary:
+install the binary:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/engnhn/dockture/master/install.sh | sh
 ```
 
-Or build from source:
+or build from source:
 
 ```bash
 git clone https://github.com/engnhn/dockture.git
@@ -29,9 +29,9 @@ cargo build --release
 sudo cp target/release/dockture /usr/local/bin/
 ```
 
-## Configuration
+## configuration
 
-Create `~/.config/dockture/config.toml` or run `dockture init` to use the interactive wizard:
+generate `~/.config/dockture/config.toml` or run `dockture init`:
 
 ```toml
 smtp_host = "smtp.gmail.com"
@@ -53,20 +53,20 @@ discord_alerts = ["crash", "warning"]
 log_keywords = ["error", "fatal", "panic"]
 ```
 
-Run Dockture in the foreground:
+run dockture in the foreground:
 
 ```bash
 dockture run
 ```
 
-To run Dockture as a systemd user service:
+run as a systemd user service:
 
 ```bash
 dockture service install
 dockture service start
 ```
 
-## Docker Compose
+## docker compose
 
 ```yaml
 version: "3.8"
@@ -87,25 +87,25 @@ services:
 docker-compose up -d
 ```
 
-## Commands
+## commands
 
-| Command | Description |
+| command | description |
 |---|---|
-| `dockture init` | Interactive setup wizard |
-| `dockture run` | Start monitoring daemon |
-| `dockture status` | Show container metrics and disk usage |
-| `dockture logs <container>` | Stream colorized logs (`--tail`, `--follow`) |
-| `dockture test-email` | Test SMTP settings |
-| `dockture test-webhook` | Test Discord and Slack webhooks |
-| `dockture config show` | Print active configuration |
-| `dockture config set [FLAGS]` | Update configuration keys |
-| `dockture service <ACTION>` | Manage systemd service (`install`, `start`, `stop`, `status`) |
-| `dockture manual` | Open terminal help guide |
+| `dockture init` | interactive setup wizard |
+| `dockture run` | start monitoring daemon |
+| `dockture status` | display container metrics and disk usage |
+| `dockture logs <container>` | stream colorized logs (`--tail`, `--follow`) |
+| `dockture test-email` | test smtp configuration |
+| `dockture test-webhook` | test discord and slack webhooks |
+| `dockture config show` | print active configuration |
+| `dockture config set [flags]` | update configuration options |
+| `dockture service <action>` | manage systemd user service (`install`, `start`, `stop`, `status`) |
+| `dockture manual` | open terminal manual |
 
-## Documentation
+## documentation
 
-Full documentation is available in the `wiki/` directory.
+detailed documentation is in the `wiki/` directory.
 
-## License
+## license
 
-[MIT](./LICENSE)
+[mit](./LICENSE)

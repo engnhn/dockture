@@ -1,24 +1,25 @@
-# Systemd & Daemon Integration
+# daemon and systemd integration
 
-Dockture runs as an unprivileged systemd user service on Linux host machines, or as a container via Docker Compose.
+dockture can run as an unprivileged systemd user service on linux hosts or as a container managed by docker compose. when installed via CLI (`dockture service install`), dockture writes a systemd user unit file to `~/.config/systemd/user/dockture.service`, reloads the user daemon, and enables background execution:
 
-## Systemd User Service
+```ini
+[Unit]
+Description=dockture container monitoring service
+After=network.target docker.service
 
-To install and start the background service:
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/dockture run
+Restart=always
+RestartSec=5
 
-```bash
-dockture service install
-dockture service start
-dockture service status
+[Install]
+WantedBy=default.target
 ```
 
-To keep the user service running after SSH logout, enable user linger:
+the user service is controlled using `dockture service <action>` subcommands (`install`, `start`, `stop`, `restart`, `status`, `uninstall`). by default, systemd user services terminate when a user closes their SSH session; to keep dockture monitoring continuously after logout, enable linger mode with `loginctl enable-linger $USER`.
 
-```bash
-loginctl enable-linger $USER
-```
-
-## Docker Compose
+for containerized deployments, dockture can be run with docker compose by mounting the host docker socket and configuration directory:
 
 ```yaml
 version: "3.8"
@@ -35,6 +36,8 @@ services:
       - DOCKTURE_CONFIG=/root/.config/dockture/config.toml
 ```
 
-```bash
-docker-compose up -d
-```
+start the stack with `docker-compose up -d` and inspect daemon logs using `docker logs -f dockture`.
+
+---
+
+previous: [notification channels and alerting](./Notification-Channels-and-Alerting.md) | home: [home](./Home.md) | next: [cli reference and operations](./CLI-Reference-and-Operations.md)

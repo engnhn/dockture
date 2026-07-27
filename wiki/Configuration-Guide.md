@@ -1,64 +1,44 @@
-# Configuration Guide
+# configuration guide
 
-Dockture resolves its configuration file in the following order:
-
-1. `--config <PATH>` global CLI flag
-2. `DOCKTURE_CONFIG` environment variable
-3. `~/.config/dockture/config.toml` (default path)
-
-All configuration files are created with POSIX `0600` permissions (owner read/write only) to protect passwords and webhook URLs.
-
-## Example Configuration
+dockture resolves its configuration file by checking three sources in order: the explicit `--config <path>` CLI flag, the `DOCKTURE_CONFIG` environment variable, and the default file path `~/.config/dockture/config.toml`. all configuration files created or modified by dockture are written with POSIX `0600` file permissions (owner read and write only) to protect plain-text smtp passwords and webhook tokens.
 
 ```toml
+# smtp server settings
 smtp_host = "smtp.gmail.com"
 smtp_port = 587
 smtp_user = "alerts@example.com"
 smtp_pass = "app-password"
 sender_email = "dockture@example.com"
-receiver_emails = ["admin@example.com"]
+receiver_emails = ["admin@example.com", "ops@example.com"]
 
+# log tailing settings
+log_tail_size = 100
+log_keywords = ["error", "fatal", "panic", "exception"]
+
+# container selection rules
+ignored_containers = ["test-*", "staging-tmp-*"]
+monitored_containers = ["prod-*", "db-*", "api-gateway"]
+
+# self healing settings
 auto_restart = true
+
+# anomaly detection settings
 anomaly_detection = true
 anomaly_threshold = 3.0
 anomaly_sensitivity = 0.2
 
-ignored_containers = ["test-*"]
-monitored_containers = ["prod-*", "db-*"]
+# webhook endpoints
+discord_webhook = "https://discord.com/api/webhooks/123456789/abcdef..."
+slack_webhook = "https://hooks.slack.com/services/T00000000/B00000000/XXXXX..."
 
-discord_webhook = "https://discord.com/api/webhooks/..."
-slack_webhook = "https://hooks.slack.com/services/..."
-
+# alert category routing
 email_alerts = ["crash", "health"]
 discord_alerts = ["crash", "warning"]
 slack_alerts = ["warning", "recovery"]
-
-log_keywords = ["error", "fatal", "panic"]
 ```
 
-## Configuration Commands
+container selection relies on glob pattern matching (`*`, `?`). patterns declared in `ignored_containers` take absolute precedence; any matching container is excluded from monitoring regardless of `monitored_containers`. if `monitored_containers` contains patterns, only containers matching at least one pattern are tracked. if `monitored_containers` is empty or omitted, all non-ignored containers are monitored. configuration options can be inspected or mutated via CLI commands such as `dockture init` (interactive setup), `dockture config show` (displays settings with masked passwords), `dockture config set` (updates specific keys), and `dockture config add-receiver <email>` (appends a recipient). to target a remote docker daemon over tcp or tls, export the `DOCKER_HOST` environment variable before running dockture commands (`export DOCKER_HOST=tcp://192.168.1.100:2375`).
 
-To create a new configuration interactively, run `dockture init`.
+---
 
-To view active configuration settings with masked passwords, run `dockture config show`.
-
-To update specific configuration options from the CLI:
-
-```bash
-dockture config set --log-tail-size 250
-dockture config set --auto-restart true
-dockture config add-receiver ops-team@example.com
-```
-
-## Container Pattern Matching
-
-Container monitoring can be restricted using glob patterns in `monitored_containers` (e.g. `prod-*`, `db-*`) and `ignored_containers` (e.g. `test-*`).
-
-## Remote Docker Host
-
-Set the `DOCKER_HOST` environment variable to connect to a remote Docker daemon over TCP or HTTPS:
-
-```bash
-export DOCKER_HOST=tcp://192.168.1.100:2375
-dockture status
-```
+previous: [statistical anomaly detection](./Statistical-Anomaly-Detection.md) | home: [home](./Home.md) | next: [notification channels and alerting](./Notification-Channels-and-Alerting.md)
