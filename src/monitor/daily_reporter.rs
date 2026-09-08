@@ -21,8 +21,37 @@ pub struct DailyStats {
 
 pub type SharedDailyStats = Arc<Mutex<DailyStats>>;
 
+fn get_daily_stats_file_path() -> std::path::PathBuf {
+    std::env::temp_dir().join("dockture_daily_stats.json")
+}
+
+pub fn load_daily_stats_from_file() -> DailyStats {
+    let path = get_daily_stats_file_path();
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    if path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(stats) = serde_json::from_str::<DailyStats>(&content) {
+                if stats.date == today {
+                    return stats;
+                }
+            }
+        }
+    }
+    DailyStats {
+        date: today,
+        ..Default::default()
+    }
+}
+
+pub fn save_daily_stats_to_file(stats: &DailyStats) {
+    let path = get_daily_stats_file_path();
+    if let Ok(content) = serde_json::to_string_pretty(stats) {
+        let _ = std::fs::write(path, content);
+    }
+}
+
 pub fn new_shared_daily_stats() -> SharedDailyStats {
-    Arc::new(Mutex::new(DailyStats::default()))
+    Arc::new(Mutex::new(load_daily_stats_from_file()))
 }
 
 pub async fn record_event(
@@ -45,6 +74,7 @@ pub async fn record_event(
             .entry(c_name.to_string())
             .or_insert(0) += 1;
     }
+    save_daily_stats_to_file(&guard);
 }
 
 pub async fn generate_and_send_daily_report(
@@ -164,6 +194,7 @@ pub async fn generate_and_send_daily_report(
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
+        save_daily_stats_to_file(&guard);
     }
 
     Ok(())
@@ -220,5 +251,22 @@ pub async fn run_daily_reporter(
                 eprintln!("Daily Reporter: Error dispatching daily report: {}", e);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_daily_stats_persistence() {
+        let stats = new_shared_daily_stats();
+        record_event(&stats, "crash", Some("test-app")).await;
+        record_event(&stats, "anomaly", Some("test-app")).await;
+
+        let loaded = load_daily_stats_from_file();
+        assert_eq!(loaded.crashes, 1);
+        assert_eq!(loaded.anomalies, 1);
+        assert_eq!(loaded.container_alerts.get("test-app"), Some(&2));
     }
 }

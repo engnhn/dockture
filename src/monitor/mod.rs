@@ -141,27 +141,37 @@ impl Monitor {
 
         let mut events_stream = docker.events(Some(options));
 
-        while let Some(event_res) = events_stream.next().await {
-            match event_res {
-                Ok(event) => {
-                    if let Err(e) = event_reactor::handle_docker_event(
-                        &docker,
-                        &self.config,
-                        &self.notifier,
-                        &self.log_alert_cache,
-                        &self.restart_tracker,
-                        &self.daily_stats,
-                        event,
-                    )
-                    .await
-                    {
-                        eprintln!("Error handling event: {}", e);
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                println!("\nDockture: Shutdown signal (SIGINT/Ctrl+C) received.");
+                let guard = self.daily_stats.lock().await;
+                daily_reporter::save_daily_stats_to_file(&guard);
+                println!("Dockture: Daily report stats saved to disk. Exiting gracefully.");
+            }
+            _ = async {
+                while let Some(event_res) = events_stream.next().await {
+                    match event_res {
+                        Ok(event) => {
+                            if let Err(e) = event_reactor::handle_docker_event(
+                                &docker,
+                                &self.config,
+                                &self.notifier,
+                                &self.log_alert_cache,
+                                &self.restart_tracker,
+                                &self.daily_stats,
+                                event,
+                            )
+                            .await
+                            {
+                                eprintln!("Error handling event: {}", e);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Error reading Docker event stream: {}", e);
+                        }
                     }
                 }
-                Err(e) => {
-                    eprintln!("Error reading Docker event stream: {}", e);
-                }
-            }
+            } => {}
         }
 
         Ok(())
