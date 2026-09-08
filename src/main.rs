@@ -32,6 +32,7 @@ enum Commands {
     Init,
     Run,
     TestEmail,
+    TestReport,
     TestWebhook,
     Config {
         #[command(subcommand)]
@@ -113,6 +114,22 @@ pub enum ConfigSubcommands {
         anomaly_threshold: Option<f64>,
         #[arg(long)]
         anomaly_sensitivity: Option<f64>,
+        #[arg(long)]
+        send_recovery_emails: Option<bool>,
+        #[arg(long)]
+        alert_cooldown_secs: Option<u64>,
+        #[arg(long)]
+        anomaly_min_value_cpu: Option<f64>,
+        #[arg(long)]
+        anomaly_min_value_mem: Option<f64>,
+        #[arg(long)]
+        anomaly_cooldown_secs: Option<u64>,
+        #[arg(long)]
+        daily_report_enabled: Option<bool>,
+        #[arg(long)]
+        daily_report_time: Option<String>,
+        #[arg(long)]
+        ignored_log_patterns: Option<String>,
     },
 }
 
@@ -131,6 +148,9 @@ async fn main() {
         }
         Commands::TestEmail => {
             commands::test_email::run_test_email(cfg_path).await;
+        }
+        Commands::TestReport => {
+            commands::test_report::run_test_report(cfg_path).await;
         }
         Commands::TestWebhook => {
             commands::test_webhook::run_test_webhook(cfg_path).await;

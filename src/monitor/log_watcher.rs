@@ -17,6 +17,7 @@ pub async fn monitor_container_logs(
     config: Config,
     notifier: Notifier,
     cache: LogAlertCache,
+    daily_stats: super::daily_reporter::SharedDailyStats,
 ) -> Result<(), String> {
     let keywords = match &config.log_keywords {
         Some(kw) => kw,
@@ -58,20 +59,23 @@ pub async fn monitor_container_logs(
                 };
 
                 for line in text.lines() {
-                    let lower_line = line.to_lowercase();
+                    if config.is_log_line_ignored(line) {
+                        continue;
+                    }
                     for kw in keywords {
-                        let lower_kw = kw.to_lowercase();
-                        if lower_line.contains(&lower_kw) {
+                        if crate::utils::is_valid_keyword_match(line, kw) {
                             let cache_key = format!("{}:{}", container_name, kw);
                             {
                                 let mut active_cache = cache.lock().await;
                                 if let Some(last_sent) = active_cache.get(&cache_key) {
-                                    if last_sent.elapsed() < std::time::Duration::from_secs(60) {
+                                    if last_sent.elapsed() < std::time::Duration::from_secs(config.alert_cooldown_secs()) {
                                         continue;
                                     }
                                 }
                                 active_cache.insert(cache_key, std::time::Instant::now());
                             }
+
+                            super::daily_reporter::record_event(&daily_stats, "log_match", Some(&container_name)).await;
 
                             println!(
                                 "Log Monitor: Container '{}' matched keyword '{}': {}",

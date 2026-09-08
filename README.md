@@ -44,13 +44,22 @@ receiver_emails = ["admin@example.com"]
 auto_restart = true
 anomaly_detection = true
 anomaly_threshold = 3.0
+anomaly_sensitivity = 2.0
+anomaly_min_value_cpu = 25.0
+anomaly_min_value_mem = 40.0
+
+send_recovery_emails = false
+alert_cooldown_secs = 900
+daily_report_enabled = true
+daily_report_time = "08:00"
 
 discord_webhook = "https://discord.com/api/webhooks/..."
 slack_webhook = "https://hooks.slack.com/services/..."
 
-email_alerts = ["crash", "health"]
+email_alerts = ["crash", "health", "daily_report"]
 discord_alerts = ["crash", "warning"]
 log_keywords = ["error", "fatal", "panic"]
+ignored_log_patterns = ["healthcheck", "isCritical"]
 ```
 
 run dockture in the foreground:
@@ -96,6 +105,7 @@ docker-compose up -d
 | `dockture status` | display container metrics and disk usage |
 | `dockture logs <container>` | stream colorized logs (`--tail`, `--follow`) |
 | `dockture test-email` | test smtp configuration |
+| `dockture test-report` | generate and send daily summary report test |
 | `dockture test-webhook` | test discord and slack webhooks |
 | `dockture config show` | print active configuration |
 | `dockture config set [flags]` | update configuration options |

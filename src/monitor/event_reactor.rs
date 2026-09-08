@@ -9,6 +9,7 @@ pub async fn handle_docker_event(
     notifier: &Notifier,
     log_alert_cache: &super::log_watcher::LogAlertCache,
     restart_tracker: &super::self_healer::RestartTracker,
+    daily_stats: &super::daily_reporter::SharedDailyStats,
     event: bollard::models::EventMessage,
 ) -> Result<(), String> {
     let action = event.action.as_deref().unwrap_or("");
@@ -41,6 +42,7 @@ pub async fn handle_docker_event(
         let config_clone = config.clone();
         let notifier_clone = notifier.clone();
         let cache_clone = log_alert_cache.clone();
+        let stats_clone = daily_stats.clone();
         let id_clone = container_id.to_string();
         let name_clone = container_name.to_string();
         tokio::spawn(async move {
@@ -51,6 +53,7 @@ pub async fn handle_docker_event(
                 config_clone,
                 notifier_clone,
                 cache_clone,
+                stats_clone,
             )
             .await;
         });
@@ -93,6 +96,8 @@ pub async fn handle_docker_event(
     if !should_alert {
         return Ok(());
     }
+
+    super::daily_reporter::record_event(daily_stats, alert_type, Some(container_name)).await;
 
     let self_healing_res = super::self_healer::handle_self_healing(
         docker,

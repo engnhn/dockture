@@ -1,3 +1,4 @@
+pub mod daily_reporter;
 pub mod event_reactor;
 pub mod log_watcher;
 pub mod resource_analyzer;
@@ -15,6 +16,7 @@ pub struct Monitor {
     notifier: Notifier,
     log_alert_cache: log_watcher::LogAlertCache,
     restart_tracker: self_healer::RestartTracker,
+    daily_stats: daily_reporter::SharedDailyStats,
 }
 
 impl Monitor {
@@ -22,11 +24,13 @@ impl Monitor {
         let notifier = Notifier::new(config.clone());
         let log_alert_cache = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
         let restart_tracker = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        let daily_stats = daily_reporter::new_shared_daily_stats();
         Self {
             config,
             notifier,
             log_alert_cache,
             restart_tracker,
+            daily_stats,
         }
     }
 
@@ -44,16 +48,32 @@ impl Monitor {
         let docker_stats_clone = docker.clone();
         let config_clone = self.config.clone();
         let notifier_clone = self.notifier.clone();
+        let daily_stats_clone = self.daily_stats.clone();
         tokio::spawn(async move {
             if let Err(e) = resource_analyzer::run_resource_monitor(
                 docker_stats_clone,
                 config_clone,
                 notifier_clone,
+                daily_stats_clone,
             )
             .await
             {
                 eprintln!("Resource monitor error: {}", e);
             }
+        });
+
+        let docker_reporter_clone = docker.clone();
+        let config_reporter_clone = self.config.clone();
+        let notifier_reporter_clone = self.notifier.clone();
+        let stats_reporter_clone = self.daily_stats.clone();
+        tokio::spawn(async move {
+            daily_reporter::run_daily_reporter(
+                docker_reporter_clone,
+                config_reporter_clone,
+                notifier_reporter_clone,
+                stats_reporter_clone,
+            )
+            .await;
         });
 
         let list_options = Some(bollard::container::ListContainersOptions::<String> {
@@ -82,6 +102,7 @@ impl Monitor {
                     let config_clone = self.config.clone();
                     let notifier_clone = self.notifier.clone();
                     let cache_clone = self.log_alert_cache.clone();
+                    let stats_clone = self.daily_stats.clone();
                     let id_clone = id.clone();
                     let name_clone = name.to_string();
                     tokio::spawn(async move {
@@ -92,6 +113,7 @@ impl Monitor {
                             config_clone,
                             notifier_clone,
                             cache_clone,
+                            stats_clone,
                         )
                         .await;
                     });
@@ -128,6 +150,7 @@ impl Monitor {
                         &self.notifier,
                         &self.log_alert_cache,
                         &self.restart_tracker,
+                        &self.daily_stats,
                         event,
                     )
                     .await

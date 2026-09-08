@@ -9,9 +9,10 @@ dockture commands follow the standard execution format `dockture [global_options
 | `dockture status` | none | displays terminal status table with active containers, state, cpu %, and memory usage |
 | `dockture logs <container>` | `--tail <lines>`, `--follow` | streams colorized container logs (`--tail` defaults to 100 lines, `--follow` streams continuously) |
 | `dockture test-email` | none | sends a test email to `receiver_emails` via configured smtp server |
+| `dockture test-report` | none | generates and sends a test 24-hour daily summary report email |
 | `dockture test-webhook` | none | posts test payloads to `discord_webhook` and `slack_webhook` endpoints |
 | `dockture config show` | none | prints active configuration with sensitive values (`smtp_pass`) masked |
-| `dockture config set` | `--log-tail-size <int>`, `--auto-restart <bool>`, `--anomaly-detection <bool>`, `--anomaly-threshold <float>`, `--anomaly-sensitivity <float>` | updates configuration parameters directly from the command line |
+| `dockture config set` | `--log-tail-size <int>`, `--auto-restart <bool>`, `--anomaly-detection <bool>`, `--anomaly-threshold <float>`, `--anomaly-sensitivity <float>`, `--send-recovery-emails <bool>`, `--alert-cooldown-secs <int>`, `--anomaly-min-value-cpu <float>`, `--anomaly-min-value-mem <float>`, `--daily-report-enabled <bool>`, `--daily-report-time <string>`, `--ignored-log-patterns <string>` | updates configuration parameters directly from the command line |
 | `dockture config add-receiver` | `<email>` | appends a new recipient email address to `receiver_emails` |
 | `dockture service` | `<action>` (`install`, `start`, `stop`, `restart`, `status`, `uninstall`) | manages background systemd user service unit |
 | `dockture manual` | none | opens terminal manual interface |

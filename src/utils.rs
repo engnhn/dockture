@@ -93,6 +93,67 @@ pub fn truncate_str(s: &str, max_bytes: usize) -> String {
     format!("{}... [truncated]", &s[..end])
 }
 
+pub fn is_valid_keyword_match(line: &str, keyword: &str) -> bool {
+    if keyword.is_empty() || line.is_empty() {
+        return false;
+    }
+
+    let lower_line = line.to_lowercase();
+    let lower_kw = keyword.to_lowercase();
+
+    let mut start_search = 0;
+    while let Some(idx) = lower_line[start_search..].find(&lower_kw) {
+        let match_idx = start_search + idx;
+        let match_end = match_idx + lower_kw.len();
+        start_search = match_end;
+
+        let char_before = if match_idx > 0 {
+            lower_line[..match_idx].chars().next_back()
+        } else {
+            None
+        };
+
+        let char_after = if match_end < lower_line.len() {
+            lower_line[match_end..].chars().next()
+        } else {
+            None
+        };
+
+        let is_prefix_boundary = match char_before {
+            Some(c) => !c.is_alphanumeric(),
+            None => true,
+        };
+
+        let is_suffix_boundary = match char_after {
+            Some(c) => !c.is_alphanumeric(),
+            None => true,
+        };
+
+        if !is_prefix_boundary || !is_suffix_boundary {
+            continue;
+        }
+
+        let snippet_after = lower_line[match_end..lower_line.len().min(match_end + 40)]
+            .trim_start_matches(|c: char| c == '"' || c == '\'' || c == ' ' || c == ':' || c == '=');
+
+        if snippet_after.starts_with("false")
+            || snippet_after.starts_with("null")
+            || snippet_after.starts_with("0,")
+            || snippet_after.starts_with("0}")
+            || snippet_after.starts_with("0\n")
+            || snippet_after.starts_with("0\r")
+            || snippet_after.starts_with("\"\"")
+            || snippet_after.starts_with("''")
+        {
+            continue;
+        }
+
+        return true;
+    }
+
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,5 +183,20 @@ mod tests {
         let truncated = truncate_str(text, 9);
         assert_eq!(truncated, "Hata: ... [truncated]");
         assert!(truncated.starts_with("Hata: "));
+    }
+
+    #[test]
+    fn test_is_valid_keyword_match() {
+        assert!(!is_valid_keyword_match("\"isCritical\": false,", "CRITICAL"));
+        assert!(!is_valid_keyword_match("\"critical\": false,", "CRITICAL"));
+        assert!(!is_valid_keyword_match("\"error\": null,", "ERROR"));
+        assert!(!is_valid_keyword_match("\"errorCount\": 0", "ERROR"));
+        assert!(!is_valid_keyword_match("uncritical_system = false", "CRITICAL"));
+        assert!(!is_valid_keyword_match("\"failed\": false", "FAIL"));
+
+        assert!(is_valid_keyword_match("[CRITICAL] Server crashed", "CRITICAL"));
+        assert!(is_valid_keyword_match("fatal error occurred in worker", "FATAL"));
+        assert!(is_valid_keyword_match("\"error\": \"Database connection timeout\"", "ERROR"));
+        assert!(is_valid_keyword_match("status: CRITICAL_FAILURE", "CRITICAL"));
     }
 }

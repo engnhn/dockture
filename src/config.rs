@@ -37,9 +37,36 @@ pub struct Config {
     pub anomaly_threshold: Option<f64>,
     #[serde(default)]
     pub anomaly_sensitivity: Option<f64>,
+    #[serde(default)]
+    pub send_recovery_emails: Option<bool>,
+    #[serde(default)]
+    pub alert_cooldown_secs: Option<u64>,
+    #[serde(default)]
+    pub anomaly_min_value_cpu: Option<f64>,
+    #[serde(default)]
+    pub anomaly_min_value_mem: Option<f64>,
+    #[serde(default)]
+    pub anomaly_cooldown_secs: Option<u64>,
+    #[serde(default)]
+    pub daily_report_enabled: Option<bool>,
+    #[serde(default)]
+    pub daily_report_time: Option<String>,
+    #[serde(default)]
+    pub ignored_log_patterns: Option<Vec<String>>,
 }
 
 impl Config {
+    pub fn is_log_line_ignored(&self, line: &str) -> bool {
+        if let Some(ignored) = &self.ignored_log_patterns {
+            let lower = line.to_lowercase();
+            for pat in ignored {
+                if lower.contains(&pat.to_lowercase()) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
     pub fn anomaly_detection(&self) -> bool {
         self.anomaly_detection.unwrap_or(true)
     }
@@ -49,7 +76,35 @@ impl Config {
     }
 
     pub fn anomaly_sensitivity(&self) -> f64 {
-        self.anomaly_sensitivity.unwrap_or(0.2)
+        self.anomaly_sensitivity.unwrap_or(2.0)
+    }
+
+    pub fn send_recovery_emails(&self) -> bool {
+        self.send_recovery_emails.unwrap_or(false)
+    }
+
+    pub fn alert_cooldown_secs(&self) -> u64 {
+        self.alert_cooldown_secs.unwrap_or(900)
+    }
+
+    pub fn anomaly_min_value_cpu(&self) -> f64 {
+        self.anomaly_min_value_cpu.unwrap_or(25.0)
+    }
+
+    pub fn anomaly_min_value_mem(&self) -> f64 {
+        self.anomaly_min_value_mem.unwrap_or(40.0)
+    }
+
+    pub fn anomaly_cooldown_secs(&self) -> u64 {
+        self.anomaly_cooldown_secs.unwrap_or(1800)
+    }
+
+    pub fn daily_report_enabled(&self) -> bool {
+        self.daily_report_enabled.unwrap_or(true)
+    }
+
+    pub fn daily_report_time(&self) -> &str {
+        self.daily_report_time.as_deref().unwrap_or("08:00")
     }
 
     pub fn is_container_monitored(&self, container_name: &str) -> bool {
@@ -254,6 +309,14 @@ impl Config {
             anomaly_detection: None,
             anomaly_threshold: None,
             anomaly_sensitivity: None,
+            send_recovery_emails: None,
+            alert_cooldown_secs: None,
+            anomaly_min_value_cpu: None,
+            anomaly_min_value_mem: None,
+            anomaly_cooldown_secs: None,
+            daily_report_enabled: None,
+            daily_report_time: None,
+            ignored_log_patterns: None,
         };
 
         Ok(config)
@@ -316,6 +379,34 @@ impl Config {
         println!(
             "│ Anomaly Sensitivity    │ {:<29} │",
             format!("{} min std dev", self.anomaly_sensitivity())
+        );
+        println!(
+            "│ Anomaly Min CPU Floor  │ {:<29} │",
+            format!("{:.1}%", self.anomaly_min_value_cpu())
+        );
+        println!(
+            "│ Anomaly Min MEM Floor  │ {:<29} │",
+            format!("{:.1}%", self.anomaly_min_value_mem())
+        );
+        println!(
+            "│ Send Recovery Emails   │ {:<29} │",
+            if self.send_recovery_emails() {
+                "Enabled"
+            } else {
+                "Disabled"
+            }
+        );
+        println!(
+            "│ Alert Cooldown         │ {:<29} │",
+            format!("{}s", self.alert_cooldown_secs())
+        );
+        println!(
+            "│ Daily Report           │ {:<29} │",
+            if self.daily_report_enabled() {
+                format!("Enabled ({})", self.daily_report_time())
+            } else {
+                "Disabled".to_string()
+            }
         );
         println!("├────────────────────────┴───────────────────────────────┤");
         println!("│ Receiver Emails:                                       │");
@@ -424,7 +515,15 @@ mod tests {
             log_keywords: Some(vec!["err".to_string()]),
             anomaly_detection: Some(true),
             anomaly_threshold: Some(3.0),
-            anomaly_sensitivity: Some(0.2),
+            anomaly_sensitivity: Some(2.0),
+            send_recovery_emails: Some(false),
+            alert_cooldown_secs: Some(900),
+            anomaly_min_value_cpu: Some(25.0),
+            anomaly_min_value_mem: Some(40.0),
+            anomaly_cooldown_secs: Some(1800),
+            daily_report_enabled: Some(true),
+            daily_report_time: Some("08:00".to_string()),
+            ignored_log_patterns: None,
         };
 
         let serialized = toml::to_string(&config).unwrap();

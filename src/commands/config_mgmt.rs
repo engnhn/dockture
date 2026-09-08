@@ -50,6 +50,14 @@ pub fn handle_config_command(subcommand: ConfigSubcommands, config_path: Option<
             anomaly_detection,
             anomaly_threshold,
             anomaly_sensitivity,
+            send_recovery_emails,
+            alert_cooldown_secs,
+            anomaly_min_value_cpu,
+            anomaly_min_value_mem,
+            anomaly_cooldown_secs,
+            daily_report_enabled,
+            daily_report_time,
+            ignored_log_patterns,
         } => {
             let mut updated = false;
             if let Some(host) = smtp_host {
@@ -196,6 +204,48 @@ pub fn handle_config_command(subcommand: ConfigSubcommands, config_path: Option<
             }
             if let Some(sensitivity) = anomaly_sensitivity {
                 config.anomaly_sensitivity = Some(sensitivity);
+                updated = true;
+            }
+            if let Some(recovery) = send_recovery_emails {
+                config.send_recovery_emails = Some(recovery);
+                updated = true;
+            }
+            if let Some(cooldown) = alert_cooldown_secs {
+                config.alert_cooldown_secs = Some(cooldown);
+                updated = true;
+            }
+            if let Some(min_cpu) = anomaly_min_value_cpu {
+                config.anomaly_min_value_cpu = Some(min_cpu);
+                updated = true;
+            }
+            if let Some(min_mem) = anomaly_min_value_mem {
+                config.anomaly_min_value_mem = Some(min_mem);
+                updated = true;
+            }
+            if let Some(anom_cd) = anomaly_cooldown_secs {
+                config.anomaly_cooldown_secs = Some(anom_cd);
+                updated = true;
+            }
+            if let Some(daily_enabled) = daily_report_enabled {
+                config.daily_report_enabled = Some(daily_enabled);
+                updated = true;
+            }
+            if let Some(daily_time) = daily_report_time {
+                config.daily_report_time = Some(daily_time);
+                updated = true;
+            }
+            if let Some(ignored_pats) = ignored_log_patterns {
+                config.ignored_log_patterns = if ignored_pats.trim().is_empty() {
+                    None
+                } else {
+                    Some(
+                        ignored_pats
+                            .split(',')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect(),
+                    )
+                };
                 updated = true;
             }
 

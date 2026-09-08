@@ -81,7 +81,7 @@ fn save_persistent_state(path: &Path, history: &HashMap<String, MetricHistory>) 
 }
 
 pub fn calculate_z_score(history: &[f64], current: f64, min_std_dev: f64) -> Option<f64> {
-    if history.len() < 5 {
+    if history.len() < 15 {
         return None;
     }
 
@@ -174,6 +174,7 @@ pub async fn run_resource_monitor(
     docker: Docker,
     config: Config,
     notifier: Notifier,
+    daily_stats: super::daily_reporter::SharedDailyStats,
 ) -> Result<(), String> {
     let mut mem_warning_states: HashMap<String, bool> = HashMap::new();
     let mut cpu_warning_states: HashMap<String, bool> = HashMap::new();
@@ -249,6 +250,7 @@ pub async fn run_resource_monitor(
                         if pct >= 90.0 {
                             if !*warning_sent {
                                 *warning_sent = true;
+                                super::daily_reporter::record_event(&daily_stats, "resource_warning", Some(container_name)).await;
                                 println!(
                                     "RESOURCE WARNING (Memory): Container '{}' memory usage is at {:.1}% ({:.1} MB / {:.1} MB)",
                                     container_name, pct, usage_mb, limit_mb
@@ -317,55 +319,57 @@ pub async fn run_resource_monitor(
                                     container_name, pct, usage_mb, limit_mb
                                 );
 
-                                let alert_reason = format!("Memory Usage Recovered ({:.1}%)", pct);
-                                let subject = format!(
-                                    "[DOCKTURE RECOVERY] Container '{}' -> {}",
-                                    container_name, alert_reason
-                                );
+                                if config.send_recovery_emails() {
+                                    let alert_reason = format!("Memory Usage Recovered ({:.1}%)", pct);
+                                    let subject = format!(
+                                        "[DOCKTURE RECOVERY] Container '{}' -> {}",
+                                        container_name, alert_reason
+                                    );
 
-                                let plain_body = format!(
-                                    "--- DOCKTURE RESOURCE RECOVERY ---\n\
-                                     Container Name: {}\n\
-                                     Container ID: {}\n\
-                                     Memory Usage: {:.2} MB / {:.2} MB ({:.2}%)\n\n\
-                                     Status: memory usage returned to normal levels (below 80%).",
-                                    container_name, container_id, usage_mb, limit_mb, pct
-                                );
+                                    let plain_body = format!(
+                                        "--- DOCKTURE RESOURCE RECOVERY ---\n\
+                                         Container Name: {}\n\
+                                         Container ID: {}\n\
+                                         Memory Usage: {:.2} MB / {:.2} MB ({:.2}%)\n\n\
+                                         Status: memory usage returned to normal levels (below 80%).",
+                                        container_name, container_id, usage_mb, limit_mb, pct
+                                    );
 
-                                let meta = vec![
-                                    ("Container Name", container_name.to_string()),
-                                    ("Container ID", container_id.to_string()),
-                                    (
-                                        "Memory Usage",
-                                        format!("{:.2} MB / {:.2} MB", usage_mb, limit_mb),
-                                    ),
-                                    ("Usage Percentage", format!("{:.1}%", pct)),
-                                    ("Status", "MEMORY USAGE RECOVERED (below 80%)".to_string()),
-                                ];
+                                    let meta = vec![
+                                        ("Container Name", container_name.to_string()),
+                                        ("Container ID", container_id.to_string()),
+                                        (
+                                            "Memory Usage",
+                                            format!("{:.2} MB / {:.2} MB", usage_mb, limit_mb),
+                                        ),
+                                        ("Usage Percentage", format!("{:.1}%", pct)),
+                                        ("Status", "MEMORY USAGE RECOVERED (below 80%)".to_string()),
+                                    ];
 
-                                let html_body = crate::templates::render_html_report(
-                                    "Resource Recovery Notification (Memory)",
-                                    &alert_reason,
-                                    "#10b981",
-                                    "#f0fdf4",
-                                    &meta,
-                                    None,
-                                );
+                                    let html_body = crate::templates::render_html_report(
+                                        "Resource Recovery Notification (Memory)",
+                                        &alert_reason,
+                                        "#10b981",
+                                        "#f0fdf4",
+                                        &meta,
+                                        None,
+                                    );
 
-                                if let Err(e) = notifier.send_notification(
-                                    "recovery",
-                                    &subject,
-                                    &plain_body,
-                                    &html_body,
-                                ) {
-                                    eprintln!("Failed to send memory recovery email: {}", e);
+                                    if let Err(e) = notifier.send_notification(
+                                        "recovery",
+                                        &subject,
+                                        &plain_body,
+                                        &html_body,
+                                    ) {
+                                        eprintln!("Failed to send memory recovery email: {}", e);
+                                    }
                                 }
 
                                 notifier
                                     .send_webhook_alerts(
                                         "recovery",
                                         container_name,
-                                        &alert_reason,
+                                        &format!("Memory Usage Recovered ({:.1}%)", pct),
                                         "Resource Recovery",
                                         "",
                                     )
@@ -392,19 +396,20 @@ pub async fn run_resource_monitor(
                             };
 
                             if let Some(z) = z_score {
-                                if z > config.anomaly_threshold() && pct > mean {
+                                if z > config.anomaly_threshold() && pct > mean && pct >= config.anomaly_min_value_mem() {
                                     let now = std::time::Instant::now();
                                     let cooldown_key = format!("{}-Memory", container_name);
                                     let is_cooldown = last_anomaly_alerts
                                         .get(&cooldown_key)
                                         .map(|last_alert| {
                                             now.duration_since(*last_alert)
-                                                < std::time::Duration::from_secs(300)
+                                                < std::time::Duration::from_secs(config.anomaly_cooldown_secs())
                                         })
                                         .unwrap_or(false);
 
                                     if !is_cooldown {
                                         last_anomaly_alerts.insert(cooldown_key, now);
+                                        super::daily_reporter::record_event(&daily_stats, "anomaly", Some(container_name)).await;
                                         trigger_anomaly_alert(
                                             container_name,
                                             container_id,
@@ -450,6 +455,7 @@ pub async fn run_resource_monitor(
                         if cpu_pct >= 90.0 {
                             if !*cpu_warning_sent {
                                 *cpu_warning_sent = true;
+                                super::daily_reporter::record_event(&daily_stats, "resource_warning", Some(container_name)).await;
                                 println!(
                                     "RESOURCE WARNING (CPU): Container '{}' CPU usage is at {:.1}%",
                                     container_name, cpu_pct
@@ -514,51 +520,53 @@ pub async fn run_resource_monitor(
                                     container_name, cpu_pct
                                 );
 
-                                let alert_reason = format!("CPU Usage Recovered ({:.1}%)", cpu_pct);
-                                let subject = format!(
-                                    "[DOCKTURE RECOVERY] Container '{}' -> {}",
-                                    container_name, alert_reason
-                                );
+                                if config.send_recovery_emails() {
+                                    let alert_reason = format!("CPU Usage Recovered ({:.1}%)", cpu_pct);
+                                    let subject = format!(
+                                        "[DOCKTURE RECOVERY] Container '{}' -> {}",
+                                        container_name, alert_reason
+                                    );
 
-                                let plain_body = format!(
-                                    "--- DOCKTURE RESOURCE RECOVERY ---\n\
-                                     Container Name: {}\n\
-                                     Container ID: {}\n\
-                                     CPU Usage: {:.2}%\n\n\
-                                     Status: CPU usage returned to normal levels (below 80%).",
-                                    container_name, container_id, cpu_pct
-                                );
+                                    let plain_body = format!(
+                                        "--- DOCKTURE RESOURCE RECOVERY ---\n\
+                                         Container Name: {}\n\
+                                         Container ID: {}\n\
+                                         CPU Usage: {:.2}%\n\n\
+                                         Status: CPU usage returned to normal levels (below 80%).",
+                                        container_name, container_id, cpu_pct
+                                    );
 
-                                let meta = vec![
-                                    ("Container Name", container_name.to_string()),
-                                    ("Container ID", container_id.to_string()),
-                                    ("CPU Usage", format!("{:.1}%", cpu_pct)),
-                                    ("Status", "CPU USAGE RECOVERED (below 80%)".to_string()),
-                                ];
+                                    let meta = vec![
+                                        ("Container Name", container_name.to_string()),
+                                        ("Container ID", container_id.to_string()),
+                                        ("CPU Usage", format!("{:.1}%", cpu_pct)),
+                                        ("Status", "CPU USAGE RECOVERED (below 80%)".to_string()),
+                                    ];
 
-                                let html_body = crate::templates::render_html_report(
-                                    "Resource Recovery Notification (CPU)",
-                                    &alert_reason,
-                                    "#10b981",
-                                    "#f0fdf4",
-                                    &meta,
-                                    None,
-                                );
+                                    let html_body = crate::templates::render_html_report(
+                                        "Resource Recovery Notification (CPU)",
+                                        &alert_reason,
+                                        "#10b981",
+                                        "#f0fdf4",
+                                        &meta,
+                                        None,
+                                    );
 
-                                if let Err(e) = notifier.send_notification(
-                                    "recovery",
-                                    &subject,
-                                    &plain_body,
-                                    &html_body,
-                                ) {
-                                    eprintln!("Failed to send CPU recovery email: {}", e);
+                                    if let Err(e) = notifier.send_notification(
+                                        "recovery",
+                                        &subject,
+                                        &plain_body,
+                                        &html_body,
+                                    ) {
+                                        eprintln!("Failed to send CPU recovery email: {}", e);
+                                    }
                                 }
 
                                 notifier
                                     .send_webhook_alerts(
                                         "recovery",
                                         container_name,
-                                        &alert_reason,
+                                        &format!("CPU Usage Recovered ({:.1}%)", cpu_pct),
                                         "Resource Recovery",
                                         "",
                                     )
@@ -585,19 +593,20 @@ pub async fn run_resource_monitor(
                             };
 
                             if let Some(z) = z_score {
-                                if z > config.anomaly_threshold() && cpu_pct > mean {
+                                if z > config.anomaly_threshold() && cpu_pct > mean && cpu_pct >= config.anomaly_min_value_cpu() {
                                     let now = std::time::Instant::now();
                                     let cooldown_key = format!("{}-CPU", container_name);
                                     let is_cooldown = last_anomaly_alerts
                                         .get(&cooldown_key)
                                         .map(|last_alert| {
                                             now.duration_since(*last_alert)
-                                                < std::time::Duration::from_secs(300)
+                                                < std::time::Duration::from_secs(config.anomaly_cooldown_secs())
                                         })
                                         .unwrap_or(false);
 
                                     if !is_cooldown {
                                         last_anomaly_alerts.insert(cooldown_key, now);
+                                        super::daily_reporter::record_event(&daily_stats, "anomaly", Some(container_name)).await;
                                         trigger_anomaly_alert(
                                             container_name,
                                             container_id,
@@ -640,6 +649,7 @@ pub async fn run_resource_monitor(
                 if pct >= 90.0 {
                     if !disk_warning_sent {
                         disk_warning_sent = true;
+                        super::daily_reporter::record_event(&daily_stats, "resource_warning", Some("Host Server")).await;
                         println!(
                             "RESOURCE WARNING (Host Disk): Host disk space ({}) is at {:.1}% ({:.2} GB / {:.2} GB)",
                             disk_path, pct, used_gb, total_gb
@@ -700,54 +710,56 @@ pub async fn run_resource_monitor(
                             disk_path, pct, used_gb, total_gb
                         );
 
-                        let alert_reason = format!("Host Disk Space Usage Recovered ({:.1}%)", pct);
-                        let subject =
-                            format!("[DOCKTURE RECOVERY] Host System -> {}", alert_reason);
+                        if config.send_recovery_emails() {
+                            let alert_reason = format!("Host Disk Space Usage Recovered ({:.1}%)", pct);
+                            let subject =
+                                format!("[DOCKTURE RECOVERY] Host System -> {}", alert_reason);
 
-                        let plain_body = format!(
-                            "--- DOCKTURE HOST DISK RECOVERY ---\n\
-                             Path Monitored: {}\n\
-                             Disk Space Usage: {:.2} GB / {:.2} GB ({:.1}%)\n\n\
-                             Status: host disk usage returned to normal levels (below 80%).",
-                            disk_path, used_gb, total_gb, pct
-                        );
+                            let plain_body = format!(
+                                "--- DOCKTURE HOST DISK RECOVERY ---\n\
+                                 Path Monitored: {}\n\
+                                 Disk Space Usage: {:.2} GB / {:.2} GB ({:.1}%)\n\n\
+                                 Status: host disk usage returned to normal levels (below 80%).",
+                                disk_path, used_gb, total_gb, pct
+                            );
 
-                        let meta = vec![
-                            ("Monitored Path", disk_path.to_string()),
-                            (
-                                "Disk Usage",
-                                format!("{:.2} GB / {:.2} GB", used_gb, total_gb),
-                            ),
-                            ("Usage Percentage", format!("{:.1}%", pct)),
-                            (
-                                "Status",
-                                "HOST DISK RECOVERED (usage below 80%)".to_string(),
-                            ),
-                        ];
+                            let meta = vec![
+                                ("Monitored Path", disk_path.to_string()),
+                                (
+                                    "Disk Usage",
+                                    format!("{:.2} GB / {:.2} GB", used_gb, total_gb),
+                                ),
+                                ("Usage Percentage", format!("{:.1}%", pct)),
+                                (
+                                    "Status",
+                                    "HOST DISK RECOVERED (usage below 80%)".to_string(),
+                                ),
+                            ];
 
-                        let html_body = crate::templates::render_html_report(
-                            "Host Storage Recovery Notification",
-                            &alert_reason,
-                            "#10b981",
-                            "#f0fdf4",
-                            &meta,
-                            None,
-                        );
+                            let html_body = crate::templates::render_html_report(
+                                "Host Storage Recovery Notification",
+                                &alert_reason,
+                                "#10b981",
+                                "#f0fdf4",
+                                &meta,
+                                None,
+                            );
 
-                        if let Err(e) = notifier.send_notification(
-                            "recovery",
-                            &subject,
-                            &plain_body,
-                            &html_body,
-                        ) {
-                            eprintln!("Failed to send disk space recovery email: {}", e);
+                            if let Err(e) = notifier.send_notification(
+                                "recovery",
+                                &subject,
+                                &plain_body,
+                                &html_body,
+                            ) {
+                                eprintln!("Failed to send disk space recovery email: {}", e);
+                            }
                         }
 
                         notifier
                             .send_webhook_alerts(
                                 "recovery",
                                 "Host Server",
-                                &alert_reason,
+                                &format!("Host Disk Space Usage Recovered ({:.1}%)", pct),
                                 "Host Disk Trigger",
                                 "",
                             )
@@ -769,19 +781,19 @@ mod tests {
 
     #[test]
     fn test_calculate_z_score() {
-        let mut history = vec![10.0; 4];
+        let mut history = vec![10.0; 14];
         assert_eq!(calculate_z_score(&history, 20.0, 1.0), None);
 
         history.push(10.0);
         assert_eq!(calculate_z_score(&history, 20.0, 1.0), Some(10.0));
 
-        let history_with_variance = vec![8.0, 12.0, 8.0, 12.0, 8.0, 12.0, 8.0, 12.0, 8.0, 12.0];
+        let history_with_variance = vec![8.0, 12.0, 8.0, 12.0, 8.0, 12.0, 8.0, 12.0, 8.0, 12.0, 8.0, 12.0, 8.0, 12.0, 8.0, 12.0];
         assert_eq!(
             calculate_z_score(&history_with_variance, 16.0, 1.0),
             Some(3.0)
         );
 
-        let history_stable = vec![10.0; 5];
+        let history_stable = vec![10.0; 15];
         assert_eq!(calculate_z_score(&history_stable, 11.0, 0.2), Some(5.0));
     }
 
