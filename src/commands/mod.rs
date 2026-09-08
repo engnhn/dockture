@@ -8,3 +8,5 @@ pub mod status;
 pub mod test_email;
 pub mod test_report;
 pub mod test_webhook;
+pub mod update;
+pub mod version;

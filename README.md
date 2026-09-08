@@ -109,6 +109,8 @@ docker-compose up -d
 | `dockture test-webhook` | test discord and slack webhooks |
 | `dockture config show` | print active configuration |
 | `dockture config set [flags]` | update configuration options |
+| `dockture version` | display version and architecture info |
+| `dockture update` | self-update binary to latest release from github |
 | `dockture service <action>` | manage systemd user service (`install`, `start`, `stop`, `status`) |
 | `dockture manual` | open terminal manual |
 

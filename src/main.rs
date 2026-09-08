@@ -17,6 +17,7 @@ pub mod utils;
 
 #[derive(Parser)]
 #[command(name = "dockture")]
+#[command(version)]
 #[command(about = "A doctor for Docker containers. Monitors events (crashes, OOMs, unhealthy status) and dispatches alerts via SMTP.", long_about = None)]
 struct Cli {
     #[arg(long, global = true, env = "DOCKTURE_CONFIG")]
@@ -31,6 +32,8 @@ struct Cli {
 enum Commands {
     Init,
     Run,
+    Version,
+    Update,
     TestEmail,
     TestReport,
     TestWebhook,
@@ -145,6 +148,15 @@ async fn main() {
         }
         Commands::Run => {
             commands::run::run_daemon(cfg_path).await;
+        }
+        Commands::Version => {
+            commands::version::run_version();
+        }
+        Commands::Update => {
+            if let Err(e) = commands::update::run_update().await {
+                eprintln!("Error performing update: {}", e);
+                process::exit(1);
+            }
         }
         Commands::TestEmail => {
             commands::test_email::run_test_email(cfg_path).await;

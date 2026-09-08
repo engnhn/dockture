@@ -260,6 +260,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_daily_stats_persistence() {
+        let path = get_daily_stats_file_path();
+        let _ = std::fs::remove_file(&path);
+
         let stats = new_shared_daily_stats();
         record_event(&stats, "crash", Some("test-app")).await;
         record_event(&stats, "anomaly", Some("test-app")).await;
@@ -268,5 +271,7 @@ mod tests {
         assert_eq!(loaded.crashes, 1);
         assert_eq!(loaded.anomalies, 1);
         assert_eq!(loaded.container_alerts.get("test-app"), Some(&2));
+
+        let _ = std::fs::remove_file(&path);
     }
 }

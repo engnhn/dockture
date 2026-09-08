@@ -15,6 +15,8 @@ dockture commands follow the standard execution format `dockture [global_options
 | `dockture config set` | `--log-tail-size <int>`, `--auto-restart <bool>`, `--anomaly-detection <bool>`, `--anomaly-threshold <float>`, `--anomaly-sensitivity <float>`, `--send-recovery-emails <bool>`, `--alert-cooldown-secs <int>`, `--anomaly-min-value-cpu <float>`, `--anomaly-min-value-mem <float>`, `--daily-report-enabled <bool>`, `--daily-report-time <string>`, `--ignored-log-patterns <string>` | updates configuration parameters directly from the command line |
 | `dockture config add-receiver` | `<email>` | appends a new recipient email address to `receiver_emails` |
 | `dockture service` | `<action>` (`install`, `start`, `stop`, `restart`, `status`, `uninstall`) | manages background systemd user service unit |
+| `dockture version` | none | displays version number, release profile, and target architecture |
+| `dockture update` | none | queries github releases api, downloads latest binary payload, replaces executable, and restarts systemd service |
 | `dockture manual` | none | opens terminal manual interface |
 | `dockture complete` | `<shell>` (`bash`, `zsh`, `fish`, `powershell`) | generates shell completion script for stdout redirect |
 
