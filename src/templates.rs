@@ -184,6 +184,7 @@ pub fn render_html_report(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn render_daily_report_html(
     report_date: &str,
     total_monitored: usize,
@@ -311,4 +312,3 @@ pub fn render_daily_report_html(
         container_rows = rows
     )
 }
-

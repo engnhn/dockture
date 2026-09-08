@@ -134,7 +134,7 @@ pub fn is_valid_keyword_match(line: &str, keyword: &str) -> bool {
         }
 
         let snippet_after = lower_line[match_end..lower_line.len().min(match_end + 40)]
-            .trim_start_matches(|c: char| c == '"' || c == '\'' || c == ' ' || c == ':' || c == '=');
+            .trim_start_matches(['"', '\'', ' ', ':', '=']);
 
         if snippet_after.starts_with("false")
             || snippet_after.starts_with("null")
@@ -187,16 +187,34 @@ mod tests {
 
     #[test]
     fn test_is_valid_keyword_match() {
-        assert!(!is_valid_keyword_match("\"isCritical\": false,", "CRITICAL"));
+        assert!(!is_valid_keyword_match(
+            "\"isCritical\": false,",
+            "CRITICAL"
+        ));
         assert!(!is_valid_keyword_match("\"critical\": false,", "CRITICAL"));
         assert!(!is_valid_keyword_match("\"error\": null,", "ERROR"));
         assert!(!is_valid_keyword_match("\"errorCount\": 0", "ERROR"));
-        assert!(!is_valid_keyword_match("uncritical_system = false", "CRITICAL"));
+        assert!(!is_valid_keyword_match(
+            "uncritical_system = false",
+            "CRITICAL"
+        ));
         assert!(!is_valid_keyword_match("\"failed\": false", "FAIL"));
 
-        assert!(is_valid_keyword_match("[CRITICAL] Server crashed", "CRITICAL"));
-        assert!(is_valid_keyword_match("fatal error occurred in worker", "FATAL"));
-        assert!(is_valid_keyword_match("\"error\": \"Database connection timeout\"", "ERROR"));
-        assert!(is_valid_keyword_match("status: CRITICAL_FAILURE", "CRITICAL"));
+        assert!(is_valid_keyword_match(
+            "[CRITICAL] Server crashed",
+            "CRITICAL"
+        ));
+        assert!(is_valid_keyword_match(
+            "fatal error occurred in worker",
+            "FATAL"
+        ));
+        assert!(is_valid_keyword_match(
+            "\"error\": \"Database connection timeout\"",
+            "ERROR"
+        ));
+        assert!(is_valid_keyword_match(
+            "status: CRITICAL_FAILURE",
+            "CRITICAL"
+        ));
     }
 }

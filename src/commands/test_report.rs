@@ -17,9 +17,13 @@ pub async fn run_test_report(custom_config_path: Option<&str>) {
     let notifier = Notifier::new(config.clone());
     let stats = daily_reporter::new_shared_daily_stats();
 
-    println!("Generating and sending test Daily Summary Report to {:?}...", config.receiver_emails);
+    println!(
+        "Generating and sending test Daily Summary Report to {:?}...",
+        config.receiver_emails
+    );
 
-    match daily_reporter::generate_and_send_daily_report(&docker, &config, &notifier, &stats).await {
+    match daily_reporter::generate_and_send_daily_report(&docker, &config, &notifier, &stats).await
+    {
         Ok(_) => {
             println!("SUCCESS: Daily Summary Report sent successfully!");
         }

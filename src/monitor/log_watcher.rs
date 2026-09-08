@@ -68,14 +68,23 @@ pub async fn monitor_container_logs(
                             {
                                 let mut active_cache = cache.lock().await;
                                 if let Some(last_sent) = active_cache.get(&cache_key) {
-                                    if last_sent.elapsed() < std::time::Duration::from_secs(config.alert_cooldown_secs()) {
+                                    if last_sent.elapsed()
+                                        < std::time::Duration::from_secs(
+                                            config.alert_cooldown_secs(),
+                                        )
+                                    {
                                         continue;
                                     }
                                 }
                                 active_cache.insert(cache_key, std::time::Instant::now());
                             }
 
-                            super::daily_reporter::record_event(&daily_stats, "log_match", Some(&container_name)).await;
+                            super::daily_reporter::record_event(
+                                &daily_stats,
+                                "log_match",
+                                Some(&container_name),
+                            )
+                            .await;
 
                             println!(
                                 "Log Monitor: Container '{}' matched keyword '{}': {}",

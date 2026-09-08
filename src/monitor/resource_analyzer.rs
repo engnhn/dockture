@@ -250,7 +250,12 @@ pub async fn run_resource_monitor(
                         if pct >= 90.0 {
                             if !*warning_sent {
                                 *warning_sent = true;
-                                super::daily_reporter::record_event(&daily_stats, "resource_warning", Some(container_name)).await;
+                                super::daily_reporter::record_event(
+                                    &daily_stats,
+                                    "resource_warning",
+                                    Some(container_name),
+                                )
+                                .await;
                                 println!(
                                     "RESOURCE WARNING (Memory): Container '{}' memory usage is at {:.1}% ({:.1} MB / {:.1} MB)",
                                     container_name, pct, usage_mb, limit_mb
@@ -320,7 +325,8 @@ pub async fn run_resource_monitor(
                                 );
 
                                 if config.send_recovery_emails() {
-                                    let alert_reason = format!("Memory Usage Recovered ({:.1}%)", pct);
+                                    let alert_reason =
+                                        format!("Memory Usage Recovered ({:.1}%)", pct);
                                     let subject = format!(
                                         "[DOCKTURE RECOVERY] Container '{}' -> {}",
                                         container_name, alert_reason
@@ -343,7 +349,10 @@ pub async fn run_resource_monitor(
                                             format!("{:.2} MB / {:.2} MB", usage_mb, limit_mb),
                                         ),
                                         ("Usage Percentage", format!("{:.1}%", pct)),
-                                        ("Status", "MEMORY USAGE RECOVERED (below 80%)".to_string()),
+                                        (
+                                            "Status",
+                                            "MEMORY USAGE RECOVERED (below 80%)".to_string(),
+                                        ),
                                     ];
 
                                     let html_body = crate::templates::render_html_report(
@@ -396,20 +405,30 @@ pub async fn run_resource_monitor(
                             };
 
                             if let Some(z) = z_score {
-                                if z > config.anomaly_threshold() && pct > mean && pct >= config.anomaly_min_value_mem() {
+                                if z > config.anomaly_threshold()
+                                    && pct > mean
+                                    && pct >= config.anomaly_min_value_mem()
+                                {
                                     let now = std::time::Instant::now();
                                     let cooldown_key = format!("{}-Memory", container_name);
                                     let is_cooldown = last_anomaly_alerts
                                         .get(&cooldown_key)
                                         .map(|last_alert| {
                                             now.duration_since(*last_alert)
-                                                < std::time::Duration::from_secs(config.anomaly_cooldown_secs())
+                                                < std::time::Duration::from_secs(
+                                                    config.anomaly_cooldown_secs(),
+                                                )
                                         })
                                         .unwrap_or(false);
 
                                     if !is_cooldown {
                                         last_anomaly_alerts.insert(cooldown_key, now);
-                                        super::daily_reporter::record_event(&daily_stats, "anomaly", Some(container_name)).await;
+                                        super::daily_reporter::record_event(
+                                            &daily_stats,
+                                            "anomaly",
+                                            Some(container_name),
+                                        )
+                                        .await;
                                         trigger_anomaly_alert(
                                             container_name,
                                             container_id,
@@ -455,7 +474,12 @@ pub async fn run_resource_monitor(
                         if cpu_pct >= 90.0 {
                             if !*cpu_warning_sent {
                                 *cpu_warning_sent = true;
-                                super::daily_reporter::record_event(&daily_stats, "resource_warning", Some(container_name)).await;
+                                super::daily_reporter::record_event(
+                                    &daily_stats,
+                                    "resource_warning",
+                                    Some(container_name),
+                                )
+                                .await;
                                 println!(
                                     "RESOURCE WARNING (CPU): Container '{}' CPU usage is at {:.1}%",
                                     container_name, cpu_pct
@@ -521,7 +545,8 @@ pub async fn run_resource_monitor(
                                 );
 
                                 if config.send_recovery_emails() {
-                                    let alert_reason = format!("CPU Usage Recovered ({:.1}%)", cpu_pct);
+                                    let alert_reason =
+                                        format!("CPU Usage Recovered ({:.1}%)", cpu_pct);
                                     let subject = format!(
                                         "[DOCKTURE RECOVERY] Container '{}' -> {}",
                                         container_name, alert_reason
@@ -593,20 +618,30 @@ pub async fn run_resource_monitor(
                             };
 
                             if let Some(z) = z_score {
-                                if z > config.anomaly_threshold() && cpu_pct > mean && cpu_pct >= config.anomaly_min_value_cpu() {
+                                if z > config.anomaly_threshold()
+                                    && cpu_pct > mean
+                                    && cpu_pct >= config.anomaly_min_value_cpu()
+                                {
                                     let now = std::time::Instant::now();
                                     let cooldown_key = format!("{}-CPU", container_name);
                                     let is_cooldown = last_anomaly_alerts
                                         .get(&cooldown_key)
                                         .map(|last_alert| {
                                             now.duration_since(*last_alert)
-                                                < std::time::Duration::from_secs(config.anomaly_cooldown_secs())
+                                                < std::time::Duration::from_secs(
+                                                    config.anomaly_cooldown_secs(),
+                                                )
                                         })
                                         .unwrap_or(false);
 
                                     if !is_cooldown {
                                         last_anomaly_alerts.insert(cooldown_key, now);
-                                        super::daily_reporter::record_event(&daily_stats, "anomaly", Some(container_name)).await;
+                                        super::daily_reporter::record_event(
+                                            &daily_stats,
+                                            "anomaly",
+                                            Some(container_name),
+                                        )
+                                        .await;
                                         trigger_anomaly_alert(
                                             container_name,
                                             container_id,
@@ -649,7 +684,12 @@ pub async fn run_resource_monitor(
                 if pct >= 90.0 {
                     if !disk_warning_sent {
                         disk_warning_sent = true;
-                        super::daily_reporter::record_event(&daily_stats, "resource_warning", Some("Host Server")).await;
+                        super::daily_reporter::record_event(
+                            &daily_stats,
+                            "resource_warning",
+                            Some("Host Server"),
+                        )
+                        .await;
                         println!(
                             "RESOURCE WARNING (Host Disk): Host disk space ({}) is at {:.1}% ({:.2} GB / {:.2} GB)",
                             disk_path, pct, used_gb, total_gb
@@ -711,7 +751,8 @@ pub async fn run_resource_monitor(
                         );
 
                         if config.send_recovery_emails() {
-                            let alert_reason = format!("Host Disk Space Usage Recovered ({:.1}%)", pct);
+                            let alert_reason =
+                                format!("Host Disk Space Usage Recovered ({:.1}%)", pct);
                             let subject =
                                 format!("[DOCKTURE RECOVERY] Host System -> {}", alert_reason);
 
@@ -787,7 +828,9 @@ mod tests {
         history.push(10.0);
         assert_eq!(calculate_z_score(&history, 20.0, 1.0), Some(10.0));
 
-        let history_with_variance = vec![8.0, 12.0, 8.0, 12.0, 8.0, 12.0, 8.0, 12.0, 8.0, 12.0, 8.0, 12.0, 8.0, 12.0, 8.0, 12.0];
+        let history_with_variance = vec![
+            8.0, 12.0, 8.0, 12.0, 8.0, 12.0, 8.0, 12.0, 8.0, 12.0, 8.0, 12.0, 8.0, 12.0, 8.0, 12.0,
+        ];
         assert_eq!(
             calculate_z_score(&history_with_variance, 16.0, 1.0),
             Some(3.0)

@@ -25,7 +25,11 @@ pub fn new_shared_daily_stats() -> SharedDailyStats {
     Arc::new(Mutex::new(DailyStats::default()))
 }
 
-pub async fn record_event(stats: &SharedDailyStats, event_type: &str, container_name: Option<&str>) {
+pub async fn record_event(
+    stats: &SharedDailyStats,
+    event_type: &str,
+    container_name: Option<&str>,
+) {
     let mut guard = stats.lock().await;
     match event_type {
         "crash" => guard.crashes += 1,
@@ -36,7 +40,10 @@ pub async fn record_event(stats: &SharedDailyStats, event_type: &str, container_
         _ => {}
     }
     if let Some(c_name) = container_name {
-        *guard.container_alerts.entry(c_name.to_string()).or_insert(0) += 1;
+        *guard
+            .container_alerts
+            .entry(c_name.to_string())
+            .or_insert(0) += 1;
     }
 }
 
@@ -137,7 +144,10 @@ pub async fn generate_and_send_daily_report(
         disk_usage_info
     );
 
-    let subject = format!("[DOCKTURE DAILY REPORT] System Health Summary ({})", now_date);
+    let subject = format!(
+        "[DOCKTURE DAILY REPORT] System Health Summary ({})",
+        now_date
+    );
 
     notifier.send_notification("daily_report", &subject, &plain_body, &html_body)?;
 
@@ -190,7 +200,10 @@ pub async fn run_daily_reporter(
             let time_matches = current_time_str == target_time_str;
             let day_elapsed = now_epoch.saturating_sub(guard.last_report_epoch) >= 86000;
             let min_cooldown = now_epoch.saturating_sub(guard.last_report_epoch) >= 3600;
-            ( (time_matches && min_cooldown) || (day_elapsed && guard.last_report_epoch > 0), guard.last_report_epoch )
+            (
+                (time_matches && min_cooldown) || (day_elapsed && guard.last_report_epoch > 0),
+                guard.last_report_epoch,
+            )
         };
 
         if last_epoch == 0 {
@@ -201,7 +214,9 @@ pub async fn run_daily_reporter(
 
         if should_trigger {
             println!("Daily Reporter: Generating automated 24-hour summary report...");
-            if let Err(e) = generate_and_send_daily_report(&docker, &config, &notifier, &stats).await {
+            if let Err(e) =
+                generate_and_send_daily_report(&docker, &config, &notifier, &stats).await
+            {
                 eprintln!("Daily Reporter: Error dispatching daily report: {}", e);
             }
         }
