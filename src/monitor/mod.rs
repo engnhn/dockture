@@ -19,6 +19,11 @@ use tokio::time::{Duration, sleep, timeout};
 type TaskHandles = Arc<Mutex<Vec<JoinHandle<()>>>>;
 type ActiveLogWatchers = Arc<Mutex<HashSet<String>>>;
 
+#[cfg(not(test))]
+const TASK_JOIN_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(test)]
+const TASK_JOIN_TIMEOUT: Duration = Duration::from_millis(50);
+
 #[derive(Debug)]
 enum SessionOutcome {
     Shutdown,
@@ -237,24 +242,14 @@ impl Monitor {
             .map_err(|e| format!("Failed to list running containers: {}", e))?;
 
         for c in active_containers {
-            let Some(id) = c.id else {
+            let Some((id, name)) = monitored_container_identity(&c, &self.config) else {
                 continue;
             };
-            let name = c
-                .names
-                .as_ref()
-                .and_then(|names| names.first())
-                .map(|n| n.trim_start_matches('/'))
-                .unwrap_or("unknown");
-
-            if name == "unknown" || !self.config.is_container_monitored(name) {
-                continue;
-            }
 
             let spec = log_watcher::LogWatcherSpec {
                 docker: docker.clone(),
                 container_id: id,
-                container_name: name.to_string(),
+                container_name: name,
                 config: self.config.clone(),
                 notifier: self.notifier.clone(),
                 cache: self.log_alert_cache.clone(),
@@ -277,6 +272,25 @@ async fn connect_docker_session() -> Result<Docker, String> {
         .await
         .map_err(|e| format!("Failed to ping Docker daemon (is it running?): {}", e))?;
     Ok(docker)
+}
+
+fn monitored_container_identity(
+    container: &bollard::models::ContainerSummary,
+    config: &Config,
+) -> Option<(String, String)> {
+    let id = container.id.clone()?;
+    let name = container
+        .names
+        .as_ref()
+        .and_then(|names| names.first())
+        .map(|n| n.trim_start_matches('/'))
+        .unwrap_or("unknown");
+
+    if name == "unknown" || !config.is_container_monitored(name) {
+        return None;
+    }
+
+    Some((id, name.to_string()))
 }
 
 async fn spawn_resource_monitor(
@@ -353,7 +367,7 @@ async fn join_child_tasks(task_handles: &Arc<Mutex<Vec<JoinHandle<()>>>>) {
         guard.drain(..).collect::<Vec<_>>()
     };
 
-    match timeout(Duration::from_secs(10), join_all(handles.iter_mut())).await {
+    match timeout(TASK_JOIN_TIMEOUT, join_all(handles.iter_mut())).await {
         Ok(results) => {
             for result in results {
                 if let Err(e) = result {
@@ -407,4 +421,147 @@ async fn shutdown_signal() -> &'static str {
 async fn shutdown_signal() -> &'static str {
     let _ = tokio::signal::ctrl_c().await;
     "SIGINT"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bollard::models::ContainerSummary;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    fn test_config() -> Config {
+        Config {
+            smtp_host: "smtp.example.com".to_string(),
+            smtp_port: 587,
+            smtp_user: "user".to_string(),
+            smtp_pass: "pass".to_string(),
+            sender_email: "dockture@example.com".to_string(),
+            receiver_emails: vec!["ops@example.com".to_string()],
+            log_tail_size: 50,
+            ignored_containers: Some(vec!["ignore-*".to_string()]),
+            monitored_containers: Some(vec!["api-*".to_string()]),
+            discord_webhook: None,
+            slack_webhook: None,
+            email_alerts: None,
+            discord_alerts: None,
+            slack_alerts: None,
+            auto_restart: Some(false),
+            log_keywords: None,
+            anomaly_detection: Some(true),
+            anomaly_threshold: Some(3.0),
+            anomaly_sensitivity: Some(2.0),
+            send_recovery_emails: Some(false),
+            alert_cooldown_secs: Some(900),
+            anomaly_min_value_cpu: Some(25.0),
+            anomaly_min_value_mem: Some(40.0),
+            anomaly_cooldown_secs: Some(1800),
+            daily_report_enabled: Some(false),
+            daily_report_time: Some("08:00".to_string()),
+            ignored_log_patterns: None,
+        }
+    }
+
+    fn container_summary(id: Option<&str>, name: Option<&str>) -> ContainerSummary {
+        ContainerSummary {
+            id: id.map(str::to_string),
+            names: name.map(|n| vec![format!("/{n}")]),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn reconnect_backoff_is_bounded() {
+        assert_eq!(
+            next_reconnect_delay(Duration::from_secs(1)),
+            Duration::from_secs(2)
+        );
+        assert_eq!(
+            next_reconnect_delay(Duration::from_secs(32)),
+            Duration::from_secs(60)
+        );
+        assert_eq!(
+            next_reconnect_delay(Duration::from_secs(60)),
+            Duration::from_secs(60)
+        );
+    }
+
+    #[tokio::test]
+    async fn wait_or_shutdown_returns_when_shutdown_is_sent() {
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+        let waiter = tokio::spawn(wait_or_shutdown(shutdown_rx, Duration::from_secs(60)));
+        shutdown_tx.send(true).expect("send shutdown");
+
+        assert!(waiter.await.expect("waiter completes"));
+    }
+
+    #[tokio::test]
+    async fn join_child_tasks_waits_for_cooperative_shutdown_tasks() {
+        let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+        let completed = Arc::new(AtomicBool::new(false));
+        let completed_clone = completed.clone();
+        let task_handles: TaskHandles = Arc::new(Mutex::new(Vec::new()));
+
+        let handle = tokio::spawn(async move {
+            shutdown_rx.changed().await.expect("shutdown sender alive");
+            if *shutdown_rx.borrow() {
+                completed_clone.store(true, Ordering::SeqCst);
+            }
+        });
+        task_handles.lock().await.push(handle);
+
+        shutdown_tx.send(true).expect("send shutdown");
+        join_child_tasks(&task_handles).await;
+
+        assert!(completed.load(Ordering::SeqCst));
+        assert!(task_handles.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn join_child_tasks_aborts_tasks_after_timeout() {
+        let task_handles: TaskHandles = Arc::new(Mutex::new(Vec::new()));
+        let handle = tokio::spawn(async {
+            futures_util::future::pending::<()>().await;
+        });
+        task_handles.lock().await.push(handle);
+
+        let started = std::time::Instant::now();
+        join_child_tasks(&task_handles).await;
+
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(task_handles.lock().await.is_empty());
+    }
+
+    #[test]
+    fn reconciliation_selects_only_monitored_running_containers() {
+        let config = test_config();
+
+        let selected = monitored_container_identity(
+            &container_summary(Some("id-api"), Some("api-prod")),
+            &config,
+        );
+        assert_eq!(
+            selected,
+            Some(("id-api".to_string(), "api-prod".to_string()))
+        );
+
+        assert_eq!(
+            monitored_container_identity(
+                &container_summary(Some("id-worker"), Some("worker-prod")),
+                &config
+            ),
+            None
+        );
+        assert_eq!(
+            monitored_container_identity(
+                &container_summary(Some("id-ignore"), Some("ignore-api")),
+                &config
+            ),
+            None
+        );
+        assert_eq!(
+            monitored_container_identity(&container_summary(None, Some("api-prod")), &config),
+            None
+        );
+    }
 }

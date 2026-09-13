@@ -116,6 +116,16 @@ fn extract_dockture_binary(archive_bytes: &[u8], extract_dir: &Path) -> Result<P
     Err("Extracted archive did not contain the 'dockture' binary executable.".to_string())
 }
 
+fn verify_and_extract_update(
+    archive_bytes: &[u8],
+    checksum_bytes: &[u8],
+    extract_dir: &Path,
+) -> Result<PathBuf, String> {
+    let expected_checksum = parse_sha256_checksum(checksum_bytes)?;
+    verify_sha256(archive_bytes, &expected_checksum)?;
+    extract_dockture_binary(archive_bytes, extract_dir)
+}
+
 fn stage_binary_for_atomic_replace(
     extracted_bin_path: &Path,
     current_exe: &Path,
@@ -247,18 +257,14 @@ pub async fn run_update() -> Result<(), String> {
         "SHA-256 checksum",
     )
     .await?;
-    let expected_checksum = parse_sha256_checksum(&checksum_bytes)?;
-
     println!("Verifying SHA-256 checksum...");
-    verify_sha256(&bytes, &expected_checksum)?;
-
     let temp_dir = tempfile::Builder::new()
         .prefix("dockture-update-")
         .tempdir()
         .map_err(|e| format!("Failed to create temporary update directory: {}", e))?;
 
     println!("Extracting binary payload...");
-    let extracted_bin_path = extract_dockture_binary(&bytes, temp_dir.path())?;
+    let extracted_bin_path = verify_and_extract_update(&bytes, &checksum_bytes, temp_dir.path())?;
 
     let current_exe = std::env::current_exe()
         .map_err(|e| format!("Failed to determine current executable path: {}", e))?;
@@ -351,6 +357,20 @@ mod tests {
         let extracted = fs::read(path).expect("read extracted binary");
 
         assert_eq!(extracted, b"binary");
+    }
+
+    #[test]
+    fn checksum_mismatch_stops_before_extraction() {
+        let archive = build_test_archive("dockture", b"binary");
+        let wrong_checksum =
+            b"0000000000000000000000000000000000000000000000000000000000000000  dockture.tar.gz";
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+
+        let err = verify_and_extract_update(&archive, wrong_checksum, temp_dir.path())
+            .expect_err("mismatch");
+
+        assert!(err.contains("SHA-256 verification failed"));
+        assert!(!temp_dir.path().join("dockture").exists());
     }
 
     #[test]
