@@ -55,7 +55,7 @@ dockture includes built-in alert noise reduction:
 - `send_recovery_emails` (default: `false`): controls whether resource recovery notifications (e.g. CPU/Memory returning below 80%) dispatch emails.
 - `alert_cooldown_secs` (default: `900`s / 15 minutes): rate-limits repeat log error keyword alerts and resource warnings per container.
 - `anomaly_min_value_cpu` (default: `25.0`%) & `anomaly_min_value_mem` (default: `40.0`%): enforces absolute minimum resource usage floors before statistical z-score anomaly scoring triggers alerts.
-- `daily_report_enabled` (default: `true`) & `daily_report_time` (default: `"08:00"`): automatically schedules a zero-bloat 24-hour daily HTML summary email.
+- `daily_report_enabled` (default: `true`) & `daily_report_time` (default: `"08:00"`): schedules a 24-hour daily HTML summary email.
 - `ignored_log_patterns`: array of substring patterns to skip during log error matching.
 
 configuration options can be inspected or mutated via CLI commands such as `dockture init` (interactive setup), `dockture config show` (displays settings with masked passwords), `dockture config set` (updates specific keys), `dockture test-report` (triggers daily summary report test), and `dockture config add-receiver <email>` (appends a recipient). to target a remote docker daemon over tcp or tls, export the `DOCKER_HOST` environment variable before running dockture commands (`export DOCKER_HOST=tcp://192.168.1.100:2375`).

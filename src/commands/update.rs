@@ -1,5 +1,8 @@
 use serde::Deserialize;
-use std::fs;
+use sha2::{Digest, Sha256};
+use std::fs::{self, File};
+use std::io::Cursor;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[derive(Deserialize, Debug)]
@@ -12,6 +15,150 @@ struct ReleaseAsset {
 struct ReleaseResponse {
     tag_name: String,
     assets: Vec<ReleaseAsset>,
+}
+
+async fn download_asset(
+    client: &reqwest::Client,
+    url: &str,
+    label: &str,
+) -> Result<Vec<u8>, String> {
+    let resp = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to download {}: {}", label, e))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!(
+            "Failed to download {}. HTTP status: {}",
+            label, status
+        ));
+    }
+
+    resp.bytes()
+        .await
+        .map(|bytes| bytes.to_vec())
+        .map_err(|e| format!("Failed to read {} payload: {}", label, e))
+}
+
+fn parse_sha256_checksum(content: &[u8]) -> Result<String, String> {
+    let text = std::str::from_utf8(content)
+        .map_err(|e| format!("Checksum file is not valid UTF-8: {}", e))?;
+    let checksum = text
+        .split_whitespace()
+        .next()
+        .ok_or_else(|| "Checksum file is empty.".to_string())?
+        .to_ascii_lowercase();
+
+    if checksum.len() != 64 || !checksum.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err("Checksum file does not start with a valid SHA-256 digest.".to_string());
+    }
+
+    Ok(checksum)
+}
+
+fn verify_sha256(bytes: &[u8], expected: &str) -> Result<(), String> {
+    let actual = format!("{:x}", Sha256::digest(bytes));
+    if actual != expected {
+        return Err(format!(
+            "SHA-256 verification failed. Expected {}, got {}.",
+            expected, actual
+        ));
+    }
+
+    Ok(())
+}
+
+fn extract_dockture_binary(archive_bytes: &[u8], extract_dir: &Path) -> Result<PathBuf, String> {
+    let decoder = flate2::read::GzDecoder::new(Cursor::new(archive_bytes));
+    let mut archive = tar::Archive::new(decoder);
+    let output_path = extract_dir.join("dockture");
+    let canonical_extract_dir = extract_dir.canonicalize().map_err(|e| {
+        format!(
+            "Failed to canonicalize temporary extraction directory: {}",
+            e
+        )
+    })?;
+
+    for entry_res in archive
+        .entries()
+        .map_err(|e| format!("Failed to read update archive entries: {}", e))?
+    {
+        let mut entry = entry_res.map_err(|e| format!("Failed to read archive entry: {}", e))?;
+        let entry_path = entry
+            .path()
+            .map_err(|e| format!("Failed to read archive entry path: {}", e))?;
+
+        if entry_path == Path::new("dockture") {
+            if !entry.header().entry_type().is_file() {
+                return Err("Archive entry 'dockture' is not a regular file.".to_string());
+            }
+
+            entry
+                .unpack(&output_path)
+                .map_err(|e| format!("Failed to extract dockture binary: {}", e))?;
+
+            let canonical_output = output_path
+                .canonicalize()
+                .map_err(|e| format!("Failed to canonicalize extracted binary path: {}", e))?;
+            if !canonical_output.starts_with(&canonical_extract_dir) {
+                let _ = fs::remove_file(&output_path);
+                return Err(
+                    "Archive attempted to extract outside the temporary directory.".to_string(),
+                );
+            }
+
+            return Ok(output_path);
+        }
+    }
+
+    Err("Extracted archive did not contain the 'dockture' binary executable.".to_string())
+}
+
+fn stage_binary_for_atomic_replace(
+    extracted_bin_path: &Path,
+    current_exe: &Path,
+) -> Result<PathBuf, String> {
+    let install_dir = current_exe
+        .parent()
+        .ok_or_else(|| "Current executable path has no parent directory.".to_string())?;
+    let mut staged = tempfile::Builder::new()
+        .prefix(".dockture-update-")
+        .tempfile_in(install_dir)
+        .map_err(|e| {
+            format!(
+                "Failed to create staged update file in install directory: {}",
+                e
+            )
+        })?;
+
+    {
+        let mut src = File::open(extracted_bin_path)
+            .map_err(|e| format!("Failed to open extracted binary: {}", e))?;
+        let dst = staged.as_file_mut();
+        std::io::copy(&mut src, dst)
+            .map_err(|e| format!("Failed to stage update binary: {}", e))?;
+        dst.sync_all()
+            .map_err(|e| format!("Failed to sync staged update binary: {}", e))?;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(staged.path(), fs::Permissions::from_mode(0o755)).map_err(|e| {
+            format!(
+                "Failed to set executable permissions on staged binary: {}",
+                e
+            )
+        })?;
+    }
+
+    let (_file, path) = staged
+        .keep()
+        .map_err(|e| format!("Failed to persist staged update file: {}", e.error))?;
+
+    Ok(path)
 }
 
 pub async fn run_update() -> Result<(), String> {
@@ -79,72 +226,53 @@ pub async fn run_update() -> Result<(), String> {
                 target, latest_tag
             )
         })?;
+    let checksum_asset_name = format!("{}.sha256", asset.name);
+    let checksum_asset = release
+        .assets
+        .iter()
+        .find(|a| a.name == checksum_asset_name)
+        .ok_or_else(|| {
+            format!(
+                "No SHA-256 checksum asset '{}' found in release {}",
+                checksum_asset_name, latest_tag
+            )
+        })?;
 
     println!("Downloading update package: {}...", asset.name);
 
-    let bytes = client
-        .get(&asset.browser_download_url)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to download asset tarball: {}", e))?
-        .bytes()
-        .await
-        .map_err(|e| format!("Failed to read asset payload: {}", e))?;
+    let bytes = download_asset(&client, &asset.browser_download_url, "asset tarball").await?;
+    let checksum_bytes = download_asset(
+        &client,
+        &checksum_asset.browser_download_url,
+        "SHA-256 checksum",
+    )
+    .await?;
+    let expected_checksum = parse_sha256_checksum(&checksum_bytes)?;
 
-    let temp_dir = std::env::temp_dir();
-    let tar_path = temp_dir.join("dockture_update.tar.gz");
-    let extracted_bin_path = temp_dir.join("dockture");
+    println!("Verifying SHA-256 checksum...");
+    verify_sha256(&bytes, &expected_checksum)?;
 
-    fs::write(&tar_path, &bytes)
-        .map_err(|e| format!("Failed to write temporary update tarball: {}", e))?;
+    let temp_dir = tempfile::Builder::new()
+        .prefix("dockture-update-")
+        .tempdir()
+        .map_err(|e| format!("Failed to create temporary update directory: {}", e))?;
 
     println!("Extracting binary payload...");
-    let tar_status = Command::new("tar")
-        .args([
-            "-xzf",
-            tar_path.to_str().unwrap_or_default(),
-            "-C",
-            temp_dir.to_str().unwrap_or_default(),
-        ])
-        .status()
-        .map_err(|e| format!("Failed to execute 'tar' command: {}", e))?;
-
-    if !tar_status.success() {
-        let _ = fs::remove_file(&tar_path);
-        return Err("Extraction failed. 'tar' command returned a non-zero exit code.".to_string());
-    }
-
-    if !extracted_bin_path.exists() {
-        let _ = fs::remove_file(&tar_path);
-        return Err(
-            "Extracted archive did not contain the 'dockture' binary executable.".to_string(),
-        );
-    }
+    let extracted_bin_path = extract_dockture_binary(&bytes, temp_dir.path())?;
 
     let current_exe = std::env::current_exe()
         .map_err(|e| format!("Failed to determine current executable path: {}", e))?;
 
     println!("Replacing binary at '{}'...", current_exe.display());
 
-    // Set executable permissions
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&extracted_bin_path, fs::Permissions::from_mode(0o755));
+    let staged_bin_path = stage_binary_for_atomic_replace(&extracted_bin_path, &current_exe)?;
+    if let Err(e) = fs::rename(&staged_bin_path, &current_exe) {
+        let _ = fs::remove_file(&staged_bin_path);
+        return Err(format!(
+            "Failed to atomically replace binary executable. Existing binary was left unchanged: {}",
+            e
+        ));
     }
-
-    // Try rename first, fallback to copy
-    if let Err(e) = fs::rename(&extracted_bin_path, &current_exe) {
-        fs::copy(&extracted_bin_path, &current_exe).map_err(|copy_err| {
-            format!(
-                "Failed to replace binary executable (rename err: {}, copy err: {})",
-                e, copy_err
-            )
-        })?;
-        let _ = fs::remove_file(&extracted_bin_path);
-    }
-
-    let _ = fs::remove_file(&tar_path);
 
     println!("SUCCESS: Dockture updated successfully to {}!", latest_tag);
 
@@ -165,4 +293,71 @@ pub async fn run_update() -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flate2::Compression;
+    use flate2::write::GzEncoder;
+
+    fn build_test_archive(entry_name: &str, body: &[u8]) -> Vec<u8> {
+        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+        {
+            let mut builder = tar::Builder::new(&mut gz);
+            let mut header = tar::Header::new_gnu();
+            header.set_size(body.len() as u64);
+            header.set_mode(0o755);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, entry_name, body)
+                .expect("append test archive entry");
+            builder.finish().expect("finish tar archive");
+        }
+        gz.finish().expect("finish gzip archive")
+    }
+
+    #[test]
+    fn parses_sha256sum_style_checksum_file() {
+        let checksum = parse_sha256_checksum(
+            b"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  dockture.tar.gz\n",
+        )
+        .expect("valid checksum");
+
+        assert_eq!(
+            checksum,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_checksum_file() {
+        assert!(parse_sha256_checksum(b"not-a-checksum dockture.tar.gz").is_err());
+    }
+
+    #[test]
+    fn verifies_matching_sha256() {
+        let expected = format!("{:x}", Sha256::digest(b"dockture"));
+        assert!(verify_sha256(b"dockture", &expected).is_ok());
+        assert!(verify_sha256(b"tampered", &expected).is_err());
+    }
+
+    #[test]
+    fn extracts_expected_binary_from_archive() {
+        let archive = build_test_archive("dockture", b"binary");
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+
+        let path = extract_dockture_binary(&archive, temp_dir.path()).expect("extract binary");
+        let extracted = fs::read(path).expect("read extracted binary");
+
+        assert_eq!(extracted, b"binary");
+    }
+
+    #[test]
+    fn rejects_archive_without_expected_binary() {
+        let archive = build_test_archive("other", b"binary");
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+
+        assert!(extract_dockture_binary(&archive, temp_dir.path()).is_err());
+    }
 }

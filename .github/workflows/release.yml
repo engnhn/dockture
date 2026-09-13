@@ -50,13 +50,17 @@ jobs:
         run: |
           mkdir -p dist
           cp target/${{ matrix.target }}/release/dockture dist/dockture
-          cd dist && tar -czvf ${{ matrix.artifact_name }}.tar.gz dockture
+          cd dist
+          tar -czvf ${{ matrix.artifact_name }}.tar.gz dockture
+          sha256sum ${{ matrix.artifact_name }}.tar.gz > ${{ matrix.artifact_name }}.tar.gz.sha256
 
       - name: Upload Artifact Asset
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: dist/${{ matrix.artifact_name }}.tar.gz
+          path: |
+            dist/${{ matrix.artifact_name }}.tar.gz
+            dist/${{ matrix.artifact_name }}.tar.gz.sha256
 
   create-github-release:
     name: Create GitHub Release
@@ -74,7 +78,7 @@ jobs:
       - name: Publish Release to GitHub
         uses: softprops/action-gh-release@v2
         with:
-          files: release-artifacts/*/*.tar.gz
+          files: release-artifacts/*/*
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

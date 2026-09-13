@@ -2,16 +2,36 @@ use crate::config::Config;
 use crate::notifier::Notifier;
 use bollard::Docker;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::watch;
+
+pub struct EventContext<'a> {
+    pub docker: &'a Docker,
+    pub config: &'a Config,
+    pub notifier: &'a Notifier,
+    pub log_alert_cache: &'a super::log_watcher::LogAlertCache,
+    pub restart_tracker: &'a super::self_healer::RestartTracker,
+    pub daily_stats: &'a super::daily_reporter::SharedDailyStats,
+    pub shutdown: &'a watch::Receiver<bool>,
+    pub task_handles: &'a super::TaskHandles,
+    pub active_log_watchers: &'a super::ActiveLogWatchers,
+}
 
 pub async fn handle_docker_event(
-    docker: &Docker,
-    config: &Config,
-    notifier: &Notifier,
-    log_alert_cache: &super::log_watcher::LogAlertCache,
-    restart_tracker: &super::self_healer::RestartTracker,
-    daily_stats: &super::daily_reporter::SharedDailyStats,
+    ctx: EventContext<'_>,
     event: bollard::models::EventMessage,
 ) -> Result<(), String> {
+    let EventContext {
+        docker,
+        config,
+        notifier,
+        log_alert_cache,
+        restart_tracker,
+        daily_stats,
+        shutdown,
+        task_handles,
+        active_log_watchers,
+    } = ctx;
+
     let action = event.action.as_deref().unwrap_or("");
     let actor = match &event.actor {
         Some(a) => a,
@@ -38,25 +58,17 @@ pub async fn handle_docker_event(
             "Log Monitor: Newly started container '{}' detected. Spawning log monitor...",
             container_name
         );
-        let docker_clone = docker.clone();
-        let config_clone = config.clone();
-        let notifier_clone = notifier.clone();
-        let cache_clone = log_alert_cache.clone();
-        let stats_clone = daily_stats.clone();
-        let id_clone = container_id.to_string();
-        let name_clone = container_name.to_string();
-        tokio::spawn(async move {
-            let _ = super::log_watcher::monitor_container_logs(
-                docker_clone,
-                id_clone,
-                name_clone,
-                config_clone,
-                notifier_clone,
-                cache_clone,
-                stats_clone,
-            )
-            .await;
-        });
+        let spec = super::log_watcher::LogWatcherSpec {
+            docker: docker.clone(),
+            container_id: container_id.to_string(),
+            container_name: container_name.to_string(),
+            config: config.clone(),
+            notifier: notifier.clone(),
+            cache: log_alert_cache.clone(),
+            daily_stats: daily_stats.clone(),
+            shutdown: shutdown.clone(),
+        };
+        super::spawn_log_watcher(spec, task_handles, active_log_watchers).await;
         return Ok(());
     }
 

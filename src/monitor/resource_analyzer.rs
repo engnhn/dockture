@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tokio::sync::watch;
 use tokio::time::sleep;
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -175,6 +176,7 @@ pub async fn run_resource_monitor(
     config: Config,
     notifier: Notifier,
     daily_stats: super::daily_reporter::SharedDailyStats,
+    mut shutdown: watch::Receiver<bool>,
 ) -> Result<(), String> {
     let mut mem_warning_states: HashMap<String, bool> = HashMap::new();
     let mut cpu_warning_states: HashMap<String, bool> = HashMap::new();
@@ -187,7 +189,19 @@ pub async fn run_resource_monitor(
     let mut last_anomaly_alerts: HashMap<String, std::time::Instant> = HashMap::new();
 
     loop {
-        sleep(Duration::from_secs(30)).await;
+        tokio::select! {
+            _ = shutdown.changed() => {
+                if *shutdown.borrow() {
+                    if let Some(ref path) = state_path {
+                        save_persistent_state(path, &metric_history);
+                    }
+                    println!("Resource monitor: state flushed; shutdown complete.");
+                    return Ok(());
+                }
+                continue;
+            }
+            _ = sleep(Duration::from_secs(30)) => {}
+        }
 
         let list_options = Some(ListContainersOptions::<String> {
             all: false,

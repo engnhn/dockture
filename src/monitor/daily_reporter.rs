@@ -4,7 +4,7 @@ use bollard::Docker;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, watch};
 use tokio::time::sleep;
 
 #[derive(Serialize, Deserialize, Clone, Default, Debug)]
@@ -205,13 +205,25 @@ pub async fn run_daily_reporter(
     config: Config,
     notifier: Notifier,
     stats: SharedDailyStats,
+    mut shutdown: watch::Receiver<bool>,
 ) {
     if !config.daily_report_enabled() {
         return;
     }
 
     loop {
-        sleep(std::time::Duration::from_secs(60)).await;
+        tokio::select! {
+            _ = shutdown.changed() => {
+                if *shutdown.borrow() {
+                    let guard = stats.lock().await;
+                    save_daily_stats_to_file(&guard);
+                    println!("Daily Reporter: stats flushed; shutdown complete.");
+                    return;
+                }
+                continue;
+            }
+            _ = sleep(std::time::Duration::from_secs(60)) => {}
+        }
 
         if !config.daily_report_enabled() {
             continue;

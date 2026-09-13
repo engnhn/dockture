@@ -6,19 +6,33 @@ use futures_util::StreamExt;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, watch};
 
 pub type LogAlertCache = Arc<Mutex<HashMap<String, std::time::Instant>>>;
 
-pub async fn monitor_container_logs(
-    docker: Docker,
-    container_id: String,
-    container_name: String,
-    config: Config,
-    notifier: Notifier,
-    cache: LogAlertCache,
-    daily_stats: super::daily_reporter::SharedDailyStats,
-) -> Result<(), String> {
+pub struct LogWatcherSpec {
+    pub docker: Docker,
+    pub container_id: String,
+    pub container_name: String,
+    pub config: Config,
+    pub notifier: Notifier,
+    pub cache: LogAlertCache,
+    pub daily_stats: super::daily_reporter::SharedDailyStats,
+    pub shutdown: watch::Receiver<bool>,
+}
+
+pub async fn monitor_container_logs(spec: LogWatcherSpec) -> Result<(), String> {
+    let LogWatcherSpec {
+        docker,
+        container_id,
+        container_name,
+        config,
+        notifier,
+        cache,
+        daily_stats,
+        mut shutdown,
+    } = spec;
+
     let keywords = match &config.log_keywords {
         Some(kw) => kw,
         None => &vec!["error".to_string(), "fatal".to_string(), "fail".to_string()],
@@ -46,7 +60,22 @@ pub async fn monitor_container_logs(
     );
     let mut logs_stream = docker.logs(&container_id, Some(log_options));
 
-    while let Some(log_res) = logs_stream.next().await {
+    loop {
+        let log_res = tokio::select! {
+            _ = shutdown.changed() => {
+                if *shutdown.borrow() {
+                    println!("Log Monitor: Shutdown received for '{}'", container_name);
+                    break;
+                }
+                continue;
+            }
+            log_res = logs_stream.next() => log_res,
+        };
+
+        let Some(log_res) = log_res else {
+            break;
+        };
+
         match log_res {
             Ok(output) => {
                 let text = match output {

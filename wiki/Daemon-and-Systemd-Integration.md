@@ -17,7 +17,7 @@ RestartSec=5
 WantedBy=default.target
 ```
 
-the user service is controlled using `dockture service <action>` subcommands (`install`, `start`, `stop`, `restart`, `status`, `uninstall`). by default, systemd user services terminate when a user closes their SSH session; to keep dockture monitoring continuously after logout, enable linger mode with `loginctl enable-linger $USER`.
+the user service is controlled using `dockture service <action>` subcommands (`install`, `start`, `stop`, `restart`, `status`, `uninstall`). `dockture service stop` and `systemctl --user stop dockture` deliver `SIGTERM`; foreground `Ctrl+C` delivers `SIGINT`. dockture handles both signals through the same shutdown path: the event loop stops accepting work, monitor tasks receive cancellation, daily stats and resource monitor state are flushed, and spawned monitor tasks are joined. if tasks do not stop within the shutdown timeout, dockture aborts the remaining task handles before exiting. by default, systemd user services terminate when a user closes their SSH session; to keep dockture monitoring continuously after logout, enable linger mode with `loginctl enable-linger $USER`.
 
 for containerized deployments, dockture can be run with docker compose by mounting the host docker socket and configuration directory:
 
